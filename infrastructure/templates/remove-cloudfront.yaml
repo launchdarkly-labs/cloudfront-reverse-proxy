@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Automated cleanup template - deletes the ld-cloudfront-proxy stack and all its resources'
+
+Parameters:
+  StackNameToDelete:
+    Type: String
+    Default: 'ld-cloudfront-proxy'
+    Description: 'Name of the CloudFront stack to delete'
+
+Resources:
+  # IAM Role for the cleanup Lambda function
+  CleanupLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-cleanup-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: CloudFormationDeletePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStackResources
+                Resource: !Sub 'arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${StackNameToDelete}/*'
+              - Effect: Allow
+                Action:
+                  - cloudfront:GetDistribution
+                  - cloudfront:GetDistributionConfig
+                  - cloudfront:UpdateDistribution
+                  - cloudfront:DeleteDistribution
+                Resource: '*'
+
+  # Lambda function that deletes the CloudFront stack
+  CleanupLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-cleanup-function'
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Role: !GetAtt CleanupLambdaRole.Arn
+      Timeout: 900  # 15 minutes
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import time
+          import cfnresponse
+
+          def lambda_handler(event, context):
+              print(f"Event: {json.dumps(event)}")
+              
+              cf_client = boto3.client('cloudformation')
+              stack_name = event['ResourceProperties']['StackName']
+              
+              try:
+                  if event['RequestType'] == 'Create':
+                      print(f"Initiating deletion of stack: {stack_name}")
+                      
+                      # Check if stack exists
+                      try:
+                          cf_client.describe_stacks(StackName=stack_name)
+                          print(f"Stack {stack_name} exists, proceeding with deletion")
+                      except cf_client.exceptions.ClientError as e:
+                          if 'does not exist' in str(e):
+                              print(f"Stack {stack_name} does not exist, nothing to delete")
+                              cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": "Stack does not exist"})
+                              return
+                          else:
+                              raise e
+                      
+                      # Delete the stack
+                      cf_client.delete_stack(StackName=stack_name)
+                      print(f"Deletion initiated for stack: {stack_name}")
+                      
+                      # Note: We don't wait for completion here as it would timeout
+                      # The stack deletion will continue in the background
+                      
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": f"Stack {stack_name} deletion initiated"})
+                  
+                  elif event['RequestType'] == 'Delete':
+                      # This cleanup stack is being deleted, nothing special to do
+                      print("Cleanup stack is being deleted")
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": "Cleanup completed"})
+                  
+                  else:
+                      # Update case
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": "No action required"})
+                      
+              except Exception as e:
+                  print(f"Error: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {"Message": str(e)})
+
+  # Custom resource that triggers the Lambda function
+  TriggerCleanup:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt CleanupLambdaFunction.Arn
+      StackName: !Ref StackNameToDelete
+
+Outputs:
+  CleanupStatus:
+    Value: !GetAtt TriggerCleanup.Message
+    Description: 'Status of the cleanup operation'
+  
+  Instructions:
+    Value: 'Stack deletion initiated. Check CloudFormation console to monitor progress. The CloudFront stack deletion will take 15-20 minutes to complete.'
+    Description: 'Next steps'

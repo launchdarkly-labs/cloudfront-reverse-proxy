@@ -1,0 +1,286 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFront proxy in front of LaunchDarkly client SDK and events, with optional custom domain and Route 53 DNS automation.
+
+Parameters:
+  UseCustomDomain:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true','false']
+    Description: 'true to use ACM + vanity domain, false to use default CloudFront domain'
+  DomainName:
+    Type: String
+    Default: ''
+    Description: Vanity CNAME, e.g. flags.example.com (required if UseCustomDomain=true)
+  AcmCertificateArn:
+    Type: String
+    Default: ''
+    Description: ACM cert ARN in us-east-1 (required if UseCustomDomain=true)
+  PriceClass:
+    Type: String
+    Default: PriceClass_100
+    AllowedValues: [PriceClass_All, PriceClass_200, PriceClass_100]
+  EnableLogging:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+  LoggingBucket:
+    Type: String
+    Default: ''
+    Description: Optional S3 bucket for logs (name only, no s3://)
+  AutoCreateDNS:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: 'true to automatically create Route 53 DNS record, false to create manually (requires HostedZoneId if true)'
+  HostedZoneId:
+    Type: String
+    Default: ''
+    Description: Route 53 Hosted Zone ID for your domain (required if AutoCreateDNS=true)
+
+Conditions:
+  UseAlias: !Equals [!Ref UseCustomDomain, 'true']
+  UseLogging: !Equals [!Ref EnableLogging, 'true']
+  AutoCreateDNS: !And 
+    - !Equals [!Ref UseCustomDomain, 'true']
+    - !Equals [!Ref AutoCreateDNS, 'true']
+    - !Not [!Equals [!Ref HostedZoneId, '']]
+
+Resources:
+  CfResponseHeadersPolicy:
+    Type: AWS::CloudFront::ResponseHeadersPolicy
+    Properties:
+      ResponseHeadersPolicyConfig:
+        Name: LDClientsdkCORS
+        Comment: CORS for LD client SDK proxy
+        CorsConfig:
+          AccessControlAllowCredentials: false
+          AccessControlAllowHeaders: { Items: ['*'] }
+          AccessControlAllowMethods: { Items: ['GET','HEAD','POST','OPTIONS'] }
+          AccessControlAllowOrigins: { Items: ['*'] }
+          AccessControlExposeHeaders: { Items: ['ETag','Cache-Control','Content-Type'] }
+          OriginOverride: true
+
+  CfOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: LDClientsdkOriginRequest
+        Comment: Forward all query strings and key preflight headers
+        CookiesConfig: { CookieBehavior: "none" }
+        HeadersConfig:
+          HeaderBehavior: "whitelist"
+          Headers:
+            - Origin
+            - Access-Control-Request-Method
+            - Access-Control-Request-Headers
+            - User-Agent
+        QueryStringsConfig: { QueryStringBehavior: "all" }
+
+  CfCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: LDClientsdkCache
+        DefaultTTL: 300
+        MaxTTL: 600
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingBrotli: true
+          EnableAcceptEncodingGzip: true
+          CookiesConfig: { CookieBehavior: "none" }
+          HeadersConfig:
+            HeaderBehavior: "whitelist"
+            Headers:
+              - Origin
+              - User-Agent
+          QueryStringsConfig:
+            QueryStringBehavior: "all"
+
+  CfNoCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: LDStreamingNoCache
+        DefaultTTL: 0
+        MaxTTL: 1
+        MinTTL: 0
+        Comment: Minimal cache policy for SSE streaming endpoints
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingBrotli: false
+          EnableAcceptEncodingGzip: false
+          CookiesConfig: { CookieBehavior: "none" }
+          HeadersConfig: { HeaderBehavior: "none" }
+          QueryStringsConfig: { QueryStringBehavior: "all" }
+
+  CfDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: LaunchDarkly client SDK and events proxy
+        Aliases: !If [UseAlias, [!Ref DomainName], []]
+        DefaultRootObject: ''
+        PriceClass: !Ref PriceClass
+        Origins:
+          - Id: LDClientSdkOrigin
+            DomainName: clientsdk.launchdarkly.com
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: ['TLSv1.2']
+          - Id: LDEventsOrigin
+            DomainName: events.launchdarkly.com
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: ['TLSv1.2']
+          - Id: LDSdkOrigin
+            DomainName: sdk.launchdarkly.com
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: ['TLSv1.2']
+          - Id: LDClientStreamOrigin
+            DomainName: clientstream.launchdarkly.com
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: ['TLSv1.2']
+          - Id: LDAppOrigin
+            DomainName: app.launchdarkly.com
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: ['TLSv1.2']
+        DefaultCacheBehavior:
+          TargetOriginId: LDClientSdkOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: ['GET','HEAD','OPTIONS']
+          CachedMethods: ['GET','HEAD','OPTIONS']
+          CachePolicyId: !Ref CfCachePolicy
+          OriginRequestPolicyId: !Ref CfOriginRequestPolicy
+          ResponseHeadersPolicyId: !Ref CfResponseHeadersPolicy
+          Compress: true
+        CacheBehaviors:
+          - PathPattern: "/stream/eval/*"
+            TargetOriginId: LDClientStreamOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: ['GET','HEAD','OPTIONS']
+            CachedMethods: ['HEAD','GET']
+            CachePolicyId: !Ref CfNoCachePolicy
+            OriginRequestPolicyId: !Ref CfOriginRequestPolicy
+            ResponseHeadersPolicyId: !Ref CfResponseHeadersPolicy
+            Compress: false
+          - PathPattern: "/sdk/eval/users/*"
+            TargetOriginId: LDClientSdkOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: ['DELETE','GET','HEAD','OPTIONS','PATCH','POST','PUT']
+            CachedMethods: ['GET','HEAD','OPTIONS']
+            CachePolicyId: !Ref CfCachePolicy
+            OriginRequestPolicyId: !Ref CfOriginRequestPolicy
+            ResponseHeadersPolicyId: !Ref CfResponseHeadersPolicy
+            Compress: true
+          - PathPattern: "/eval/*"
+            TargetOriginId: LDClientStreamOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: ['GET','HEAD','OPTIONS']
+            CachedMethods: ['HEAD','GET']
+            CachePolicyId: !Ref CfNoCachePolicy
+            OriginRequestPolicyId: !Ref CfOriginRequestPolicy
+            ResponseHeadersPolicyId: !Ref CfResponseHeadersPolicy
+            Compress: false
+          - PathPattern: "/sdk/evalx/*"
+            TargetOriginId: LDAppOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: ['DELETE','GET','HEAD','OPTIONS','PATCH','POST','PUT']
+            CachedMethods: ['GET','HEAD','OPTIONS']
+            CachePolicyId: !Ref CfCachePolicy
+            OriginRequestPolicyId: !Ref CfOriginRequestPolicy
+            ResponseHeadersPolicyId: !Ref CfResponseHeadersPolicy
+            Compress: true
+          - PathPattern: "/events/*"
+            TargetOriginId: LDEventsOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: ['DELETE','GET','HEAD','OPTIONS','PATCH','POST','PUT']
+            CachedMethods: ['GET','HEAD','OPTIONS']
+            CachePolicyId: !Ref CfCachePolicy
+            OriginRequestPolicyId: !Ref CfOriginRequestPolicy
+            ResponseHeadersPolicyId: !Ref CfResponseHeadersPolicy
+            Compress: true
+          - PathPattern: "/goals/*"
+            TargetOriginId: LDClientSdkOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: ['DELETE','GET','HEAD','OPTIONS','PATCH','POST','PUT']
+            CachedMethods: ['GET','HEAD','OPTIONS']
+            CachePolicyId: !Ref CfCachePolicy
+            OriginRequestPolicyId: !Ref CfOriginRequestPolicy
+            ResponseHeadersPolicyId: !Ref CfResponseHeadersPolicy
+            Compress: true
+          - PathPattern: "/sdk/*"
+            TargetOriginId: LDAppOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: ['DELETE','GET','HEAD','OPTIONS','PATCH','POST','PUT']
+            CachedMethods: ['GET','HEAD','OPTIONS']
+            CachePolicyId: !Ref CfCachePolicy
+            OriginRequestPolicyId: !Ref CfOriginRequestPolicy
+            ResponseHeadersPolicyId: !Ref CfResponseHeadersPolicy
+            Compress: true
+          - PathPattern: "/stream/*"
+            TargetOriginId: LDClientStreamOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: ['GET','HEAD','OPTIONS']
+            CachedMethods: ['HEAD','GET']
+            CachePolicyId: !Ref CfNoCachePolicy
+            OriginRequestPolicyId: !Ref CfOriginRequestPolicy
+            ResponseHeadersPolicyId: !Ref CfResponseHeadersPolicy
+            Compress: false
+          - PathPattern: "/clientstream/*"
+            TargetOriginId: LDClientStreamOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: ['GET','HEAD','OPTIONS']
+            CachedMethods: ['HEAD','GET']
+            CachePolicyId: !Ref CfNoCachePolicy
+            OriginRequestPolicyId: !Ref CfOriginRequestPolicy
+            ResponseHeadersPolicyId: !Ref CfResponseHeadersPolicy
+            Compress: false
+        HttpVersion: http2
+        IPV6Enabled: true
+        ViewerCertificate: !If
+          - UseAlias
+          - AcmCertificateArn: !Ref AcmCertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+            MinimumProtocolVersion: TLSv1.2_2021
+        Logging: !If
+          - UseLogging
+          - Bucket: !Sub '${LoggingBucket}.s3.amazonaws.com'
+            IncludeCookies: false
+            Prefix: cloudfront-logs/
+          - !Ref AWS::NoValue
+
+  # Optional Route 53 DNS Record for automatic DNS setup
+  DNSRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: AutoCreateDNS
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: CNAME
+      TTL: 300
+      ResourceRecords:
+        - !GetAtt CfDistribution.DomainName
+
+Outputs:
+  DistributionId:
+    Value: !Ref CfDistribution
+    Description: CloudFront distribution ID
+  DistributionDomainName:
+    Value: !GetAtt CfDistribution.DomainName
+    Description: CloudFront domain you can CNAME to if using a vanity domain
+  DNSRecordCreated:
+    Condition: AutoCreateDNS
+    Value: !Sub '${DomainName} → ${CfDistribution.DomainName}'
+    Description: Route 53 DNS record automatically created
+  DNSSetupRequired:
+    Condition: UseAlias
+    Value: !If
+      - AutoCreateDNS
+      - 'DNS record created automatically ✓'
+      - !Sub 'Manual DNS setup required: Create CNAME ${DomainName} → ${CfDistribution.DomainName}'
+    Description: DNS configuration status and instructions
