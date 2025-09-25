@@ -1,30 +1,8 @@
 # AWS CloudFront Proxy for LaunchDarkly
 
-A CloudFront distribution that acts as a reverse proxy for LaunchDarkly client SDK and events APIs.  For when network calls need to come from a specific URL instead of LaunchDarkly.
+An AWS CloudFront distribution that acts as a reverse proxy for LaunchDarkly client SDK and events APIs.  For when network calls need to come from a specific URL instead of LaunchDarkly.
 
-## Architecture
-
-```
-Your Application → CloudFront Edge → LaunchDarkly APIs
-                     ↓ (cached)
-```
-
-### Endpoint Mappings
-
-| **Path Pattern** | **Target Origin** | **LaunchDarkly Domain** | **Purpose** |
-|-----------------|-------------------|-------------------------|-------------|
-| `/` (default) | `LDClientSdkOrigin` | `clientsdk.launchdarkly.com` | Default flag polling |
-| `/eval/*` | `LDClientStreamOrigin` | `clientstream.launchdarkly.com` | 🔄 **Streaming evaluations** |
-| `/stream/*` | `LDClientStreamOrigin` | `clientstream.launchdarkly.com` | 🔄 **Real-time streaming** |
-| `/stream/eval/*` | `LDClientStreamOrigin` | `clientstream.launchdarkly.com` | 🔄 **Combined streaming** |
-| `/clientstream/*` | `LDClientStreamOrigin` | `clientstream.launchdarkly.com` | 🔄 **Alternative streaming** |
-| `/events/*` | `LDEventsOrigin` | `events.launchdarkly.com` | 📊 Event tracking |
-| `/goals/*` | `LDClientSdkOrigin` | `clientsdk.launchdarkly.com` | 🎯 Goal tracking |
-| `/sdk/eval/users/*` | `LDClientSdkOrigin` | `clientsdk.launchdarkly.com` | 👤 User-specific evaluations |
-| `/sdk/evalx/*` | `LDAppOrigin` | `app.launchdarkly.com` | 🔧 Extended evaluation APIs |
-| `/sdk/*` | `LDAppOrigin` | `app.launchdarkly.com` | ⚙️ SDK management APIs |
-
-> **Note:** All streaming endpoints (`/eval/*`, `/stream/*`, `/clientstream/*`) use **no-cache policies** for real-time updates.
+> **Note:** All streaming endpoints use **no-cache policies** for real-time updates.
 
 ## Quick Start
 
@@ -42,33 +20,6 @@ aws sts get-caller-identity
 # If you get "Token has expired and refresh failed", re-login:
 aws sso login --profile YOUR-PROFILE
 ```
-
-### Deploy the CloudFront Proxy
-
-```bash
-cd infrastructure
-
-aws cloudformation deploy \
-  --template-file templates/cloudfront.yaml \
-  --stack-name ld-cloudfront-proxy \
-  --parameter-overrides \
-    UseCustomDomain=false \
-    PriceClass=PriceClass_100 \
-    EnableLogging=false
-```
-
-**⏱️ Deployment time:** ~15-20 minutes (CloudFront global propagation)
-
-### Get Your Proxy URL
-
-```bash
-aws cloudformation describe-stacks \
-  --stack-name ld-cloudfront-proxy \
-  --query 'Stacks[0].Outputs' \
-  --output table
-```
-
-This will return your CloudFront domain (e.g., `d1a2b3c4d5e6f7.cloudfront.net`)
 
 ## Configuration Options
 
@@ -90,22 +41,22 @@ This will return your CloudFront domain (e.g., `d1a2b3c4d5e6f7.cloudfront.net`)
 - **PriceClass_All**: Global coverage - Highest cost
 
 ### Custom Domain Setup Options
-
-**⚠️ PREREQUISITES:** Before using `UseCustomDomain=true`, you must complete the following setup:
+ 
+**⚠️ PREREQUISITES:** Before using `UseCustomDomain=true`, you must complete the following setup!!
 
 #### Step 1: Get Your Route 53 Hosted Zone ID
 ```bash
 # Find your hosted zone ID (replace with your domain)
 aws route53 list-hosted-zones --query 'HostedZones[?Name==`my-awesome-domain.com.`].[Id,Name]' --output table
 
-# Example output: Zone ID like Z04794713N147BEH1NVCF
+# Example output: Zone ID like Z01741713N143BEH1HBBD
 ```
 
 #### Step 2: Create ACM Certificate (Required)
 ```bash
 # Request SSL certificate (MUST be in us-east-1 for CloudFront)
 aws acm request-certificate \
-  --domain-name ld.my-awesoome-domain.com \
+  --domain-name flags.my-awesoome-domain.com \
   --validation-method DNS \
   --region us-east-1
 
@@ -122,7 +73,7 @@ aws route53 change-resource-record-sets --hosted-zone-id YOUR-ZONE-ID --change-b
   "Changes": [{
     "Action": "CREATE",
     "ResourceRecordSet": {
-      "Name": "_validation-string.ld.my-awesome-domain.com.",
+      "Name": "_validation-string.flags.my-awesome-domain.com.",
       "Type": "CNAME",
       "TTL": 300,
       "ResourceRecords": [{"Value": "_validation-value.acm-validations.aws."}]
@@ -130,14 +81,21 @@ aws route53 change-resource-record-sets --hosted-zone-id YOUR-ZONE-ID --change-b
   }]
 }'
 
-# Verify certificate is issued (wait 1-2 minutes)
+# Verify certificate is issued...this will take a few minutes
 aws acm describe-certificate --certificate-arn YOUR-CERT-ARN --region us-east-1 \
   --query 'Certificate.Status' --output text
 # Should return: ISSUED
 ```
 
-#### Option 1: Automatic DNS (Recommended)
-If you have a Route 53 hosted zone, the template can automatically create DNS records:
+Once validated, proceed to Option 1 for deployment.  If you are not using a custom domain, use Option 2 for deployment.
+
+### Option 1: AWS CloudFront Reverse proxy with Custom DNS
+
+**Deployment time:** ~15-20 minutes (CloudFront global propagation)
+
+If you have a Route 53 hosted zone, the template can automatically create DNS records.
+
+NOTE: Ensure you have followed the above steps in the Custom Domain Setup Options section prior to running the below command.
 
 ```bash
 aws cloudformation deploy \
@@ -145,16 +103,56 @@ aws cloudformation deploy \
   --stack-name ld-cloudfront-proxy \
   --parameter-overrides \
     UseCustomDomain=true \
-    DomainName=ld.my-awesome-domain.com \
+    DomainName=flags.my-awesome-domain.com \
     AcmCertificateArn=my-awesome-arn \
     AutoCreateDNS=true \
     HostedZoneId=my-awesome-hosted-zone-id \
     PriceClass=PriceClass_100
 ```
 
+Your reverse proxy URL will be the DomainName specified in the above command, but you can also run the below command to get it:
+### Get Your Proxy URL
+
+```bash
+aws cloudformation describe-stacks \
+  --stack-name ld-cloudfront-proxy \
+  --query 'Stacks[0].Outputs' \
+  --output table
+```
+
+This will return your CloudFront domain (e.g., `flags.my-awesome-domain.com`)
+
+
+### Option 2: AWS CloudFront Reverse proxy with generic DNS
+
+**Deployment time:** ~15-20 minutes (CloudFront global propagation)
+
+```bash
+cd infrastructure
+
+aws cloudformation deploy \
+  --template-file templates/cloudfront.yaml \
+  --stack-name ld-cloudfront-proxy \
+  --parameter-overrides \
+    UseCustomDomain=false \
+    PriceClass=PriceClass_100 \
+    EnableLogging=false
+```
+
+### Get Your Proxy URL
+
+```bash
+aws cloudformation describe-stacks \
+  --stack-name ld-cloudfront-proxy \
+  --query 'Stacks[0].Outputs' \
+  --output table
+```
+
+This will return your CloudFront domain: `d4a2b1c1d5e6f9.cloudfront.net`
+
 ## 📱 SDK Configuration
 
-Once deployed, configure your LaunchDarkly SDKs to use your CloudFront proxy:
+Once deployed, configure your LaunchDarkly SDKs to use your CloudFront proxy by specifying the options with the reverse proxy URL.
 
 ### React SDK (React Applications)
 ```javascript
@@ -165,14 +163,14 @@ const LDProvider = await asyncWithLDProvider({
     key: "unique-device-id"
   },
   options: {
-    baseUrl: 'https://ld.my-awesome-domain.com',
-    eventsUrl: 'https://ld.my-awesome-domain.com', 
-    streamUrl: 'https://ld.my-awesome-domain.com',
-    streaming: true
+    baseUrl: 'https://flags.my-awesome-domain.com',
+    eventsUrl: 'https://flags.my-awesome-domain.com', 
+    streamUrl: 'https://flags.my-awesome-domain.com'
   }
 });
 ```
 
+You may need to restart your application.
 
 ## What Gets Deployed
 
@@ -206,7 +204,7 @@ aws cloudformation deploy \
 aws cloudformation delete-stack --stack-name ld-cloudfront-proxy
 ```
 
-**⏱️ Deletion time:** ~15-20 minutes (CloudFront global propagation)
+**Deletion time:** ~15-20 minutes (CloudFront global propagation)
 
 ## Monitoring & Troubleshooting
 
@@ -235,7 +233,8 @@ aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMP
 | **Server-side SDKs** | ❌ No | Java, .NET, Python, Go, Node.js (server-side) |
 | **Event Tracking** | ✅ Yes | From any SDK type |
 
-**Note:** Server-side SDKs use different endpoints (`sdk.launchdarkly.com`) not currently proxied by this template.
+**Note:** Server-side SDKs use different endpoints (`sdk.launchdarkly.com`) not currently proxied by this template.  The reverse proxy was not intended for server side use as the endpoints are not exposed to consumer bases.
+
 
 ## Multi-Project Usage
 
@@ -246,9 +245,3 @@ Different LaunchDarkly projects within the same organization can use different c
 - **Project C**: Uses a different proxy or region
 
 Each project configures its SDK independently using different SDK keys and base URLs.
-
-## Contributing
-
-1. Test changes in a development AWS account first
-2. Validate CloudFormation templates before committing
-3. Update documentation for any parameter changes
