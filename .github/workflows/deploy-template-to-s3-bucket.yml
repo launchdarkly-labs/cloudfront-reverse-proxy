@@ -1,0 +1,51 @@
+name: Deploy CloudFormation Template to S3
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infrastructure/templates/cloudfront.yaml'
+
+  # Also trigger on workflow dispatch for manual runs
+  workflow_dispatch:
+
+env:
+  S3_BUCKET: ld-cloudfront-proxy-templates-09-25-25
+  S3_KEY: cloudfront.yaml
+  AWS_REGION: us-east-1
+
+jobs:
+  deploy-template:
+    runs-on: ubuntu-latest
+    
+    # These permissions are needed for OIDC authentication
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload CloudFormation templates to S3
+        run: |
+          echo "Uploading standard template to s3://${{ env.S3_BUCKET }}/${{ env.S3_KEY }}"
+          aws s3 cp infrastructure/templates/cloudfront.yaml s3://${{ env.S3_BUCKET }}/${{ env.S3_KEY }}
+          
+          # Verify uploads
+          echo "Verifying template accessibility..."
+          curl -f -I https://${{ env.S3_BUCKET }}.s3.amazonaws.com/${{ env.S3_KEY }}
+          
+          echo "✅ Templates successfully deployed!"
+          echo "Standard Template URL: https://${{ env.S3_BUCKET }}.s3.amazonaws.com/${{ env.S3_KEY }}"
+
+      - name: Update deployment status
+        run: |
+          echo "::notice title=Templates Deployed::CloudFormation templates updated - Standard: https://${{ env.S3_BUCKET }}.s3.amazonaws.com/${{ env.S3_KEY }}"

@@ -21,6 +21,23 @@ aws sts get-caller-identity
 aws sso login --profile YOUR-PROFILE
 ```
 
+## 🚀 One-Click Deploy
+
+Deploy the CloudFront reverse proxy directly from the AWS Console with pre-configured settings.
+
+| Region | Launch Stack | Console Link |
+|--------|--------------|--------------|
+| **US East (N. Virginia)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/cloudfront.yaml&stackName=ld-cloudfront-proxy&param_UseCustomDomain=false&param_PriceClass=PriceClass_100&param_EnableLogging=false) | [Text Link](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/cloudfront.yaml&stackName=ld-cloudfront-proxy&param_UseCustomDomain=false&param_PriceClass=PriceClass_100&param_EnableLogging=false) |
+| **US East (Ohio)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-2#/stacks/create/review?templateURL=https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/cloudfront.yaml&stackName=ld-cloudfront-proxy&param_UseCustomDomain=false&param_PriceClass=PriceClass_100&param_EnableLogging=false) | [Text Link](https://console.aws.amazon.com/cloudformation/home?region=us-east-2#/stacks/create/review?templateURL=https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/cloudfront.yaml&stackName=ld-cloudfront-proxy&param_UseCustomDomain=false&param_PriceClass=PriceClass_100&param_EnableLogging=false) |
+| **US West (Oregon)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/create/review?templateURL=https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/cloudfront.yaml&stackName=ld-cloudfront-proxy&param_UseCustomDomain=false&param_PriceClass=PriceClass_100&param_EnableLogging=false) | [Text Link](https://console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/create/review?templateURL=https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/cloudfront.yaml&stackName=ld-cloudfront-proxy&param_UseCustomDomain=false&param_PriceClass=PriceClass_100&param_EnableLogging=false) |
+| **EU West (Ireland)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/create/review?templateURL=https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/cloudfront.yaml&stackName=ld-cloudfront-proxy&param_UseCustomDomain=false&param_PriceClass=PriceClass_100&param_EnableLogging=false) | [Text Link](https://console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/create/review?templateURL=https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/cloudfront.yaml&stackName=ld-cloudfront-proxy&param_UseCustomDomain=false&param_PriceClass=PriceClass_100&param_EnableLogging=false) |
+
+You can deploy to any AWS region by changing `region=us-east-1` in the URL to your preferred region (e.g., `region=ap-southeast-1`).
+
+**Template URL:** `https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/cloudfront.yaml`
+
+The template is automatically updated via GitHub Actions when changes are merged to main for `infrastructure/cloudfront.yaml`
+
 ## Configuration Options
 
 | Parameter | Default | Options | Description |
@@ -40,62 +57,14 @@ aws sso login --profile YOUR-PROFILE
 - **PriceClass_200**: Adds Middle East, Africa - Medium cost  
 - **PriceClass_All**: Global coverage - Highest cost
 
-### Custom Domain Setup Options
- 
-**⚠️ PREREQUISITES:** Before using `UseCustomDomain=true`, you must complete the following setup!!
 
-#### Step 1: Get Your Route 53 Hosted Zone ID
-```bash
-# Find your hosted zone ID (replace with your domain)
-aws route53 list-hosted-zones --query 'HostedZones[?Name==`my-awesome-domain.com.`].[Id,Name]' --output table
-
-# Example output: Zone ID like Z01741713N143BEH1HBBD
-```
-
-#### Step 2: Create ACM Certificate (Required)
-```bash
-# Request SSL certificate (MUST be in us-east-1 for CloudFront)
-aws acm request-certificate \
-  --domain-name flags.my-awesoome-domain.com \
-  --validation-method DNS \
-  --region us-east-1
-
-# Save the Certificate ARN from the output!
-```
-
-#### Step 3: Validate Certificate
-```bash
-# Get DNS validation record details
-aws acm describe-certificate --certificate-arn YOUR-CERT-ARN --region us-east-1
-
-# Create validation record in Route 53 (replace with your values)
-aws route53 change-resource-record-sets --hosted-zone-id YOUR-ZONE-ID --change-batch '{
-  "Changes": [{
-    "Action": "CREATE",
-    "ResourceRecordSet": {
-      "Name": "_validation-string.flags.my-awesome-domain.com.",
-      "Type": "CNAME",
-      "TTL": 300,
-      "ResourceRecords": [{"Value": "_validation-value.acm-validations.aws."}]
-    }
-  }]
-}'
-
-# Verify certificate is issued...this will take a few minutes
-aws acm describe-certificate --certificate-arn YOUR-CERT-ARN --region us-east-1 \
-  --query 'Certificate.Status' --output text
-# Should return: ISSUED
-```
-
-Once validated, proceed to Option 1 for deployment.  If you are not using a custom domain, use Option 2 for deployment.
 
 ### Option 1: AWS CloudFront Reverse proxy with Custom DNS
 
 **Deployment time:** ~15-20 minutes (CloudFront global propagation)
 
-If you have a Route 53 hosted zone, the template can automatically create DNS records.
+If you have a Route 53 hosted zone, the template can automatically create the certificate and DNS records.  Ensure you already have the hosted zone setup.
 
-NOTE: Ensure you have followed the above steps in the Custom Domain Setup Options section prior to running the below command.
 
 ```bash
 aws cloudformation deploy \
@@ -103,7 +72,7 @@ aws cloudformation deploy \
   --stack-name ld-cloudfront-proxy \
   --parameter-overrides \
     UseCustomDomain=true \
-    DomainName=flags.my-awesome-domain.com \
+    DomainName=flags.my-company-domain.com \
     AcmCertificateArn=my-awesome-arn \
     AutoCreateDNS=true \
     HostedZoneId=my-awesome-hosted-zone-id \
@@ -120,7 +89,7 @@ aws cloudformation describe-stacks \
   --output table
 ```
 
-This will return your CloudFront domain (e.g., `flags.my-awesome-domain.com`)
+This will return your CloudFront domain (e.g., `flags.my-company-domain.com`)
 
 
 ### Option 2: AWS CloudFront Reverse proxy with generic DNS
@@ -150,7 +119,7 @@ aws cloudformation describe-stacks \
 
 This will return your CloudFront domain: `d4a2b1c1d5e6f9.cloudfront.net`
 
-## 📱 SDK Configuration
+## SDK Configuration
 
 Once deployed, configure your LaunchDarkly SDKs to use your CloudFront proxy by specifying the options with the reverse proxy URL.
 
@@ -163,14 +132,14 @@ const LDProvider = await asyncWithLDProvider({
     key: "unique-device-id"
   },
   options: {
-    baseUrl: 'https://flags.my-awesome-domain.com',
-    eventsUrl: 'https://flags.my-awesome-domain.com', 
-    streamUrl: 'https://flags.my-awesome-domain.com'
+    baseUrl: 'https://flags.my-company-domain.com',
+    eventsUrl: 'https://flags.my-company-domain.com', 
+    streamUrl: 'https://flags.my-company-domain.com
   }
 });
 ```
 
-You may need to restart your application.
+NOTE: You may need to restart your application.
 
 ## What Gets Deployed
 
@@ -245,3 +214,8 @@ Different LaunchDarkly projects within the same organization can use different c
 - **Project C**: Uses a different proxy or region
 
 Each project configures its SDK independently using different SDK keys and base URLs.
+
+
+## Github Actions: Automated Template Deployment to s3 bucket
+
+This repository includes a GitHub Actions workflow that automatically updates the S3-hosted CloudFormation template when changes are merged to main.
