@@ -43,10 +43,7 @@ The template is automatically updated via GitHub Actions when changes are merged
 | Parameter | Default | Options | Description |
 |-----------|---------|---------|-------------|
 | `UseCustomDomain` | `false` | `true`/`false` | Use your own domain instead of CloudFront default |
-| `DomainName` | `""` | Your domain | Required if UseCustomDomain=true (e.g., `flags.my-company.com`) currently we only support one sub-domain |
-| `AcmCertificateArn` | `""` | ACM ARN | Required if UseCustomDomain=true (must be in us-east-1) |
-| `AutoCreateDNS` | `false` | `true`/`false` | Automatically create Route 53 DNS record |
-| `HostedZoneId` | `""` | Route 53 Zone ID | Required if AutoCreateDNS=true (e.g., `Z1D633PJN98FT9`) |
+| `DomainName` | `""` | Your domain | Required if UseCustomDomain=true (e.g., `flags.my-company.com`) - will auto-create certificate and DNS records |
 | `PriceClass` | `PriceClass_100` | `PriceClass_100`/`200`/`All` | Coverage: US/Canada/Europe/Asia (100) vs Global (All) |
 | `EnableLogging` | `false` | `true`/`false` | Enable CloudFront access logging |
 | `LoggingBucket` | `""` | S3 bucket name | Required if EnableLogging=true |
@@ -63,9 +60,6 @@ The template is automatically updated via GitHub Actions when changes are merged
 
 **Deployment time:** ~15-20 minutes (CloudFront global propagation)
 
-If you have a Route 53 hosted zone, the template can automatically create the certificate and DNS records.  Ensure you already have the hosted zone setup.
-
-
 ```bash
 aws cloudformation deploy \
   --template-file templates/cloudfront.yaml \
@@ -73,10 +67,8 @@ aws cloudformation deploy \
   --parameter-overrides \
     UseCustomDomain=true \
     DomainName=flags.my-company-domain.com \
-    AcmCertificateArn=my-awesome-arn \
-    AutoCreateDNS=true \
-    HostedZoneId=my-awesome-hosted-zone-id \
-    PriceClass=PriceClass_100
+    PriceClass=PriceClass_100 \
+  --capabilities CAPABILITY_IAM
 ```
 
 Your reverse proxy URL will be the DomainName specified in the above command, but you can also run the below command to get it:
