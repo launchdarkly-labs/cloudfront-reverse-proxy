@@ -1,20 +1,16 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: CloudFront proxy in front of LaunchDarkly client SDK and events, with optional custom domain and Route 53 DNS automation.
+Description: CloudFront proxy for LaunchDarkly with automatic certificate creation and DNS validation
 
 Parameters:
   UseCustomDomain:
     Type: String
     Default: 'false'
     AllowedValues: ['true','false']
-    Description: 'true to use ACM + vanity domain, false to use default CloudFront domain'
+    Description: 'true to automatically create certificate and DNS for custom domain, false to use CloudFront default domain'
   DomainName:
     Type: String
     Default: ''
-    Description: Vanity CNAME, e.g. flags.example.com (required if UseCustomDomain=true)
-  AcmCertificateArn:
-    Type: String
-    Default: ''
-    Description: ACM cert ARN in us-east-1 (required if UseCustomDomain=true)
+    Description: 'Your custom domain (e.g. flags.example.com) - will auto-create certificate and DNS records'
   PriceClass:
     Type: String
     Default: PriceClass_100
@@ -27,30 +23,118 @@ Parameters:
     Type: String
     Default: ''
     Description: Optional S3 bucket for logs (name only, no s3://)
-  AutoCreateDNS:
-    Type: String
-    Default: 'false'
-    AllowedValues: ['true', 'false']
-    Description: 'true to automatically create Route 53 DNS record, false to create manually (requires HostedZoneId if true)'
-  HostedZoneId:
-    Type: String
-    Default: ''
-    Description: Route 53 Hosted Zone ID for your domain (required if AutoCreateDNS=true)
 
 Conditions:
-  UseAlias: !Equals [!Ref UseCustomDomain, 'true']
+  UseCustomDomain: !Equals [!Ref UseCustomDomain, 'true']
   UseLogging: !Equals [!Ref EnableLogging, 'true']
-  AutoCreateDNS: !And 
-    - !Equals [!Ref UseCustomDomain, 'true']
-    - !Equals [!Ref AutoCreateDNS, 'true']
-    - !Not [!Equals [!Ref HostedZoneId, '']]
 
 Resources:
+  # Lambda function to look up Route 53 hosted zone ID
+  HostedZoneLookupRole:
+    Type: AWS::IAM::Role
+    Condition: UseCustomDomain
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: Route53Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - route53:ListHostedZones
+                  - route53:GetHostedZone
+                Resource: '*'
+
+  HostedZoneLookupFunction:
+    Type: AWS::Lambda::Function
+    Condition: UseCustomDomain
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-hosted-zone-lookup'
+      Runtime: python3.9
+      Handler: index.handler
+      Role: !GetAtt HostedZoneLookupRole.Arn
+      Timeout: 30
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import json
+          
+          def handler(event, context):
+              try:
+                  if event['RequestType'] == 'Delete':
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+                      return
+                  
+                  domain_name = event['ResourceProperties']['DomainName']
+                  
+                  # Extract the root domain from subdomain
+                  # e.g., flags.example.com -> example.com
+                  domain_parts = domain_name.split('.')
+                  if len(domain_parts) >= 2:
+                      root_domain = '.'.join(domain_parts[-2:]) + '.'
+                  else:
+                      root_domain = domain_name + '.'
+                  
+                  route53 = boto3.client('route53')
+                  
+                  # List all hosted zones
+                  paginator = route53.get_paginator('list_hosted_zones')
+                  
+                  for page in paginator.paginate():
+                      for zone in page['HostedZones']:
+                          if zone['Name'] == root_domain:
+                              zone_id = zone['Id'].replace('/hostedzone/', '')
+                              cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                                  'HostedZoneId': zone_id,
+                                  'RootDomain': root_domain
+                              })
+                              return
+                  
+                  # If no hosted zone found
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {}, 
+                                 f"No Route 53 hosted zone found for domain: {root_domain}")
+                  
+              except Exception as e:
+                  print(f"Error: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {}, str(e))
+
+  HostedZoneLookup:
+    Type: AWS::CloudFormation::CustomResource
+    Condition: UseCustomDomain
+    Properties:
+      ServiceToken: !GetAtt HostedZoneLookupFunction.Arn
+      DomainName: !Ref DomainName
+
+  # ACM Certificate with automatic DNS validation
+  SSLCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Condition: UseCustomDomain
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !GetAtt HostedZoneLookup.HostedZoneId
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-certificate'
+
+  # CloudFront Response Headers Policy
   CfResponseHeadersPolicy:
     Type: AWS::CloudFront::ResponseHeadersPolicy
     Properties:
       ResponseHeadersPolicyConfig:
-        Name: LDClientsdkCORS
+        Name: !Sub '${AWS::StackName}-LDClientsdkCORS'
         Comment: CORS for LD client SDK proxy
         CorsConfig:
           AccessControlAllowCredentials: false
@@ -60,11 +144,12 @@ Resources:
           AccessControlExposeHeaders: { Items: ['ETag','Cache-Control','Content-Type'] }
           OriginOverride: true
 
+  # CloudFront Origin Request Policy
   CfOriginRequestPolicy:
     Type: AWS::CloudFront::OriginRequestPolicy
     Properties:
       OriginRequestPolicyConfig:
-        Name: LDClientsdkOriginRequest
+        Name: !Sub '${AWS::StackName}-LDClientsdkOriginRequest'
         Comment: Forward all query strings and key preflight headers
         CookiesConfig: { CookieBehavior: "none" }
         HeadersConfig:
@@ -76,11 +161,12 @@ Resources:
             - User-Agent
         QueryStringsConfig: { QueryStringBehavior: "all" }
 
+  # CloudFront Cache Policy - Standard
   CfCachePolicy:
     Type: AWS::CloudFront::CachePolicy
     Properties:
       CachePolicyConfig:
-        Name: LDClientsdkCache
+        Name: !Sub '${AWS::StackName}-LDClientsdkCache'
         DefaultTTL: 300
         MaxTTL: 600
         MinTTL: 0
@@ -96,11 +182,12 @@ Resources:
           QueryStringsConfig:
             QueryStringBehavior: "all"
 
+  # CloudFront Cache Policy - No Cache for Streaming
   CfNoCachePolicy:
     Type: AWS::CloudFront::CachePolicy
     Properties:
       CachePolicyConfig:
-        Name: LDStreamingNoCache
+        Name: !Sub '${AWS::StackName}-LDStreamingNoCache'
         DefaultTTL: 0
         MaxTTL: 1
         MinTTL: 0
@@ -112,13 +199,14 @@ Resources:
           HeadersConfig: { HeaderBehavior: "none" }
           QueryStringsConfig: { QueryStringBehavior: "all" }
 
+  # CloudFront Distribution
   CfDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
       DistributionConfig:
         Enabled: true
-        Comment: LaunchDarkly client SDK and events proxy
-        Aliases: !If [UseAlias, [!Ref DomainName], []]
+        Comment: !Sub '${AWS::StackName} - LaunchDarkly client SDK and events proxy'
+        Aliases: !If [UseCustomDomain, [!Ref DomainName], []]
         DefaultRootObject: ''
         PriceClass: !Ref PriceClass
         Origins:
@@ -241,8 +329,8 @@ Resources:
         HttpVersion: http2
         IPV6Enabled: true
         ViewerCertificate: !If
-          - UseAlias
-          - AcmCertificateArn: !Ref AcmCertificateArn
+          - UseCustomDomain
+          - AcmCertificateArn: !Ref SSLCertificate
             SslSupportMethod: sni-only
             MinimumProtocolVersion: TLSv1.2_2021
           - CloudFrontDefaultCertificate: true
@@ -254,17 +342,18 @@ Resources:
             Prefix: cloudfront-logs/
           - !Ref AWS::NoValue
 
-  # Optional Route 53 DNS Record for automatic DNS setup
+  # Automatic DNS Record Creation
   DNSRecord:
     Type: AWS::Route53::RecordSet
-    Condition: AutoCreateDNS
+    Condition: UseCustomDomain
     Properties:
-      HostedZoneId: !Ref HostedZoneId
+      HostedZoneId: !GetAtt HostedZoneLookup.HostedZoneId
       Name: !Ref DomainName
-      Type: CNAME
-      TTL: 300
-      ResourceRecords:
-        - !GetAtt CfDistribution.DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CfDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2  # CloudFront hosted zone ID
+        EvaluateTargetHealth: false
 
 Outputs:
   DistributionId:
@@ -272,15 +361,22 @@ Outputs:
     Description: CloudFront distribution ID
   DistributionDomainName:
     Value: !GetAtt CfDistribution.DomainName
-    Description: CloudFront domain you can CNAME to if using a vanity domain
-  DNSRecordCreated:
-    Condition: AutoCreateDNS
-    Value: !Sub '${DomainName} → ${CfDistribution.DomainName}'
-    Description: Route 53 DNS record automatically created
-  DNSSetupRequired:
-    Condition: UseAlias
+    Description: CloudFront domain name
+  CustomDomainName:
+    Condition: UseCustomDomain
+    Value: !Ref DomainName
+    Description: Your custom domain name
+  CertificateArn:
+    Condition: UseCustomDomain
+    Value: !Ref SSLCertificate
+    Description: ACM certificate ARN
+  HostedZoneId:
+    Condition: UseCustomDomain
+    Value: !GetAtt HostedZoneLookup.HostedZoneId
+    Description: Route 53 hosted zone ID used
+  ProxyURL:
     Value: !If
-      - AutoCreateDNS
-      - 'DNS record created automatically ✓'
-      - !Sub 'Manual DNS setup required: Create CNAME ${DomainName} → ${CfDistribution.DomainName}'
-    Description: DNS configuration status and instructions
+      - UseCustomDomain
+      - !Sub 'https://${DomainName}'
+      - !Sub 'https://${CfDistribution.DomainName}'
+    Description: URL to use in your LaunchDarkly SDK configuration
