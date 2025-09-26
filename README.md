@@ -2,6 +2,8 @@
 
 An AWS CloudFront distribution that acts as a reverse proxy for LaunchDarkly client SDK and events APIs.  For when network calls need to come from a specific URL instead of LaunchDarkly.
 
+> **⚠️ Disclaimer:** This is not an officially supported solution by LaunchDarkly.
+
 > **Note:** All streaming endpoints use **no-cache policies** for real-time updates.
 
 ## Quick Start
@@ -234,6 +236,10 @@ Before clicking cleanup, you'll need to provide:
 - **CleanupCertificate**: Set to `true` to remove ACM certificates
 
 > **⚠️ Warning:** This will permanently delete your CloudFront proxy and all associated resources. Make sure you're ready before proceeding!
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
