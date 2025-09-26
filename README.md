@@ -43,7 +43,7 @@ The template is automatically updated via GitHub Actions when changes are merged
 | Parameter | Default | Options | Description |
 |-----------|---------|---------|-------------|
 | `UseCustomDomain` | `false` | `true`/`false` | Use your own domain instead of CloudFront default |
-| `DomainName` | `""` | Your domain | Required if UseCustomDomain=true (e.g., `flags.my-company.com`) currently we only support one sub-domain (e.g. woohoo.flag.my-company) |
+| `DomainName` | `""` | Your domain | Required if UseCustomDomain=true (e.g., `flags.my-company.com`) currently we only support one sub-domain |
 | `AcmCertificateArn` | `""` | ACM ARN | Required if UseCustomDomain=true (must be in us-east-1) |
 | `AutoCreateDNS` | `false` | `true`/`false` | Automatically create Route 53 DNS record |
 | `HostedZoneId` | `""` | Route 53 Zone ID | Required if AutoCreateDNS=true (e.g., `Z1D633PJN98FT9`) |
