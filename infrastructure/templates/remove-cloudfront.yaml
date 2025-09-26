@@ -1,11 +1,30 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Automated cleanup template - deletes the ld-cloudfront-proxy stack and all its resources'
+Description: 'Comprehensive cleanup template - deletes CloudFormation stack, DNS records, and certificates'
 
 Parameters:
   StackNameToDelete:
     Type: String
     Default: 'ld-cloudfront-proxy'
     Description: 'Name of the CloudFront stack to delete'
+  DomainName:
+    Type: String
+    Default: ''
+    Description: 'Custom domain to cleanup DNS and certificate (e.g., flags.launchdarklydemos.com). Leave empty to skip DNS/cert cleanup.'
+  CleanupDNS:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: 'Whether to cleanup Route 53 DNS records for the domain'
+  CleanupCertificate:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']  
+    Description: 'Whether to cleanup ACM certificates for the domain'
+
+Conditions:
+  HasDomainName: !Not [!Equals [!Ref DomainName, '']]
+  ShouldCleanupDNS: !And [!Condition HasDomainName, !Equals [!Ref CleanupDNS, 'true']]
+  ShouldCleanupCertificate: !And [!Condition HasDomainName, !Equals [!Ref CleanupCertificate, 'true']]
 
 Resources:
   # IAM Role for the cleanup Lambda function
@@ -23,7 +42,7 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: CloudFormationDeletePolicy
+        - PolicyName: ComprehensiveCleanupPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
@@ -40,6 +59,19 @@ Resources:
                   - cloudfront:GetDistributionConfig
                   - cloudfront:UpdateDistribution
                   - cloudfront:DeleteDistribution
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - route53:ListHostedZones
+                  - route53:ListResourceRecordSets
+                  - route53:ChangeResourceRecordSets
+                  - route53:GetChange
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - acm:ListCertificates
+                  - acm:DescribeCertificate
+                  - acm:DeleteCertificate
                 Resource: '*'
 
   # Lambda function that deletes the CloudFront stack
@@ -58,39 +90,155 @@ Resources:
           import time
           import cfnresponse
 
+          def cleanup_route53_records(domain_name):
+              """Delete Route 53 A records and ACM validation CNAME records for the domain"""
+              route53 = boto3.client('route53')
+              
+              # Find hosted zone for domain
+              root_domain = '.'.join(domain_name.split('.')[-2:]) + '.'
+              print(f"Looking for hosted zone: {root_domain}")
+              
+              paginator = route53.get_paginator('list_hosted_zones')
+              hosted_zone_id = None
+              
+              for page in paginator.paginate():
+                  for zone in page['HostedZones']:
+                      print(f"Checking zone: {zone['Name']} against {root_domain}")
+                      if zone['Name'] == root_domain:
+                          hosted_zone_id = zone['Id'].replace('/hostedzone/', '')
+                          print(f"Found matching hosted zone: {hosted_zone_id}")
+                          break
+              
+              if not hosted_zone_id:
+                  print(f"No hosted zone found for {root_domain}")
+                  return
+              
+              # List ALL records in hosted zone (handle pagination)
+              paginator = route53.get_paginator('list_resource_record_sets')
+              all_records = []
+              
+              for page in paginator.paginate(HostedZoneId=hosted_zone_id):
+                  all_records.extend(page['ResourceRecordSets'])
+              
+              print(f"Found {len(all_records)} total records in zone")
+              
+              records_to_delete = []
+              
+              # Find records to delete
+              for record in all_records:
+                  record_name = record['Name'].rstrip('.')
+                  print(f"Checking record: {record_name} (type: {record['Type']})")
+                  
+                  # Delete A record for our domain
+                  if record_name == domain_name and record['Type'] == 'A':
+                      records_to_delete.append(('A', record))
+                      print(f"Found A record to delete: {domain_name}")
+                  
+                  # Delete ACM validation CNAME records (start with _ and contain our domain)
+                  elif record['Type'] == 'CNAME' and record_name.startswith('_') and domain_name in record_name:
+                      records_to_delete.append(('CNAME', record))
+                      print(f"Found ACM validation CNAME to delete: {record_name}")
+              
+              print(f"Total records to delete: {len(records_to_delete)}")
+              
+              # Delete records in batch if any found
+              if records_to_delete:
+                  changes = []
+                  for record_type, record in records_to_delete:
+                      changes.append({
+                          'Action': 'DELETE',
+                          'ResourceRecordSet': record
+                      })
+                  
+                  if changes:
+                      change_batch = {'Changes': changes}
+                      
+                      response = route53.change_resource_record_sets(
+                          HostedZoneId=hosted_zone_id,
+                          ChangeBatch=change_batch
+                      )
+                      
+                      print(f"Route 53 records deletion initiated: {response['ChangeInfo']['Id']}")
+                      print(f"Deleted {len(changes)} DNS records for {domain_name}")
+              else:
+                  print(f"No DNS records found to delete for {domain_name}")
+
+          def cleanup_acm_certificates(domain_name):
+              """Delete ACM certificates for the domain"""
+              acm = boto3.client('acm', region_name='us-east-1')  # Certificates for CloudFront must be in us-east-1
+              
+              # List all certificates
+              paginator = acm.get_paginator('list_certificates')
+              
+              for page in paginator.paginate():
+                  for cert in page['CertificateSummaryList']:
+                      if cert['DomainName'] == domain_name:
+                          print(f"Deleting ACM certificate: {cert['CertificateArn']}")
+                          
+                          try:
+                              acm.delete_certificate(CertificateArn=cert['CertificateArn'])
+                              print(f"ACM certificate deleted: {cert['CertificateArn']}")
+                          except acm.exceptions.ResourceInUseException:
+                              print(f"Certificate still in use, will be cleaned up after CloudFront deletion: {cert['CertificateArn']}")
+                          except Exception as e:
+                              print(f"Error deleting certificate {cert['CertificateArn']}: {str(e)}")
+
           def lambda_handler(event, context):
               print(f"Event: {json.dumps(event)}")
               
               cf_client = boto3.client('cloudformation')
               stack_name = event['ResourceProperties']['StackName']
+              domain_name = event['ResourceProperties'].get('DomainName', '')
+              cleanup_dns = event['ResourceProperties'].get('CleanupDNS', 'false') == 'true'
+              cleanup_cert = event['ResourceProperties'].get('CleanupCertificate', 'false') == 'true'
+              
+              cleanup_messages = []
               
               try:
                   if event['RequestType'] == 'Create':
-                      print(f"Initiating deletion of stack: {stack_name}")
+                      print(f"Starting comprehensive cleanup...")
                       
-                      # Check if stack exists
+                      # Step 1: Cleanup DNS records (if requested)
+                      if domain_name and cleanup_dns:
+                          try:
+                              cleanup_route53_records(domain_name)
+                              cleanup_messages.append(f"DNS cleanup initiated for {domain_name}")
+                          except Exception as e:
+                              print(f"DNS cleanup error: {str(e)}")
+                              cleanup_messages.append(f"DNS cleanup failed: {str(e)}")
+                      
+                      # Step 2: Delete CloudFormation stack
                       try:
                           cf_client.describe_stacks(StackName=stack_name)
                           print(f"Stack {stack_name} exists, proceeding with deletion")
+                          
+                          cf_client.delete_stack(StackName=stack_name)
+                          print(f"Stack deletion initiated: {stack_name}")
+                          cleanup_messages.append(f"CloudFormation stack {stack_name} deletion initiated")
+                          
                       except cf_client.exceptions.ClientError as e:
                           if 'does not exist' in str(e):
-                              print(f"Stack {stack_name} does not exist, nothing to delete")
-                              cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": "Stack does not exist"})
-                              return
+                              print(f"Stack {stack_name} does not exist")
+                              cleanup_messages.append(f"Stack {stack_name} does not exist")
                           else:
                               raise e
                       
-                      # Delete the stack
-                      cf_client.delete_stack(StackName=stack_name)
-                      print(f"Deletion initiated for stack: {stack_name}")
+                      # Step 3: Cleanup ACM certificates (if requested)
+                      # Note: Do this after stack deletion is initiated to avoid conflicts
+                      if domain_name and cleanup_cert:
+                          try:
+                              # Wait a moment for stack deletion to start
+                              time.sleep(10)
+                              cleanup_acm_certificates(domain_name)
+                              cleanup_messages.append(f"Certificate cleanup initiated for {domain_name}")
+                          except Exception as e:
+                              print(f"Certificate cleanup error: {str(e)}")
+                              cleanup_messages.append(f"Certificate cleanup failed: {str(e)}")
                       
-                      # Note: We don't wait for completion here as it would timeout
-                      # The stack deletion will continue in the background
-                      
-                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": f"Stack {stack_name} deletion initiated"})
+                      message = "; ".join(cleanup_messages)
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": message})
                   
                   elif event['RequestType'] == 'Delete':
-                      # This cleanup stack is being deleted, nothing special to do
                       print("Cleanup stack is being deleted")
                       cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": "Cleanup completed"})
                   
@@ -108,12 +256,31 @@ Resources:
     Properties:
       ServiceToken: !GetAtt CleanupLambdaFunction.Arn
       StackName: !Ref StackNameToDelete
+      DomainName: !Ref DomainName
+      CleanupDNS: !Ref CleanupDNS
+      CleanupCertificate: !Ref CleanupCertificate
 
 Outputs:
   CleanupStatus:
     Value: !GetAtt TriggerCleanup.Message
-    Description: 'Status of the cleanup operation'
+    Description: 'Status of the comprehensive cleanup operation'
+  
+  DomainCleaned:
+    Condition: HasDomainName
+    Value: !Ref DomainName
+    Description: 'Domain that was cleaned up'
+  
+  CleanupSummary:
+    Value: !Sub |
+      Cleanup initiated for stack: ${StackNameToDelete}
+      Domain: ${DomainName}
+      DNS Cleanup: ${CleanupDNS}
+      Certificate Cleanup: ${CleanupCertificate}
+    Description: 'Summary of cleanup configuration'
   
   Instructions:
-    Value: 'Stack deletion initiated. Check CloudFormation console to monitor progress. The CloudFront stack deletion will take 15-20 minutes to complete.'
+    Value: !If
+      - HasDomainName
+      - 'Comprehensive cleanup initiated including DNS and certificates. Check CloudFormation console to monitor progress. The cleanup will take 15-20 minutes to complete.'
+      - 'Stack deletion initiated. Check CloudFormation console to monitor progress. The CloudFront stack deletion will take 15-20 minutes to complete.'
     Description: 'Next steps'

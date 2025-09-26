@@ -43,9 +43,9 @@ The template is automatically updated via GitHub Actions when changes are merged
 | Parameter | Default | Options | Description |
 |-----------|---------|---------|-------------|
 | `UseCustomDomain` | `false` | `true`/`false` | Use your own domain instead of CloudFront default |
-| `DomainName` | `""` | Your domain | Required if UseCustomDomain=true (e.g., `flags.my-super-awesome-company.com`) |
+| `DomainName` | `""` | Your domain | Required if UseCustomDomain=true (e.g., `flags.my-company.com`) currently we only support one sub-domain (e.g. woohoo.flag.my-company) |
 | `AcmCertificateArn` | `""` | ACM ARN | Required if UseCustomDomain=true (must be in us-east-1) |
-| `AutoCreateDNS` | `false` | `true`/`false` | **NEW:** Automatically create Route 53 DNS record |
+| `AutoCreateDNS` | `false` | `true`/`false` | Automatically create Route 53 DNS record |
 | `HostedZoneId` | `""` | Route 53 Zone ID | Required if AutoCreateDNS=true (e.g., `Z1D633PJN98FT9`) |
 | `PriceClass` | `PriceClass_100` | `PriceClass_100`/`200`/`All` | Coverage: US/Canada/Europe/Asia (100) vs Global (All) |
 | `EnableLogging` | `false` | `true`/`false` | Enable CloudFront access logging |
@@ -215,7 +215,33 @@ Different LaunchDarkly projects within the same organization can use different c
 
 Each project configures its SDK independently using different SDK keys and base URLs.
 
-
 ## Github Actions: Automated Template Deployment to s3 bucket
 
-This repository includes a GitHub Actions workflow that automatically updates the S3-hosted CloudFormation template when changes are merged to main.
+This repository includes a GitHub Actions workflow that automatically updates the S3-hosted CloudFormation templates when changes are merged to main.
+
+## One-Click Cleanup
+
+Remove your CloudFront proxy deployment and clean up all associated resources including DNS records and certificates.
+
+### Cleanup Options
+
+| Region | Launch Cleanup Stack | Console Link |
+|--------|---------------------|--------------|
+| **US East (N. Virginia)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/remove-cloudfront.yaml&stackName=cleanup-ld-cloudfront&param_StackNameToDelete=ld-cloudfront-proxy&param_CleanupDNS=true&param_CleanupCertificate=true) | [Text Link](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?templateURL=https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/remove-cloudfront.yaml&stackName=cleanup-ld-cloudfront&param_StackNameToDelete=ld-cloudfront-proxy&param_CleanupDNS=true&param_CleanupCertificate=true) |
+| **US East (Ohio)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-2#/stacks/create/review?templateURL=https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/remove-cloudfront.yaml&stackName=cleanup-ld-cloudfront&param_StackNameToDelete=ld-cloudfront-proxy&param_CleanupDNS=true&param_CleanupCertificate=true) | [Text Link](https://console.aws.amazon.com/cloudformation/home?region=us-east-2#/stacks/create/review?templateURL=https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/remove-cloudfront.yaml&stackName=cleanup-ld-cloudfront&param_StackNameToDelete=ld-cloudfront-proxy&param_CleanupDNS=true&param_CleanupCertificate=true) |
+| **US West (Oregon)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/create/review?templateURL=https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/remove-cloudfront.yaml&stackName=cleanup-ld-cloudfront&param_StackNameToDelete=ld-cloudfront-proxy&param_CleanupDNS=true&param_CleanupCertificate=true) | [Text Link](https://console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/create/review?templateURL=https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/remove-cloudfront.yaml&stackName=cleanup-ld-cloudfront&param_StackNameToDelete=ld-cloudfront-proxy&param_CleanupDNS=true&param_CleanupCertificate=true) |
+| **EU West (Ireland)** | [![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/create/review?templateURL=https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/remove-cloudfront.yaml&stackName=cleanup-ld-cloudfront&param_StackNameToDelete=ld-cloudfront-proxy&param_CleanupDNS=true&param_CleanupCertificate=true) | [Text Link](https://console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/create/review?templateURL=https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/remove-cloudfront.yaml&stackName=cleanup-ld-cloudfront&param_StackNameToDelete=ld-cloudfront-proxy&param_CleanupDNS=true&param_CleanupCertificate=true) |
+
+### Required Parameters
+
+Before clicking cleanup, you'll need to provide:
+
+- **StackNameToDelete**: Name of your CloudFront stack (default: `ld-cloudfront-proxy`)
+- **DomainName**: Your custom domain (e.g., `flags.your-company.com`) - leave empty to skip DNS/cert cleanup
+- **CleanupDNS**: Set to `true` to remove Route 53 DNS records
+- **CleanupCertificate**: Set to `true` to remove ACM certificates
+
+> **⚠️ Warning:** This will permanently delete your CloudFront proxy and all associated resources. Make sure you're ready before proceeding!
+
+---
+

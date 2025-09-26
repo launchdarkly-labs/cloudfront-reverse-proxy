@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'infrastructure/templates/cloudfront.yaml'
+      - 'infrastructure/templates/remove-cloudfront.yaml'
 
   workflow_dispatch:
 
@@ -29,16 +30,21 @@ jobs:
 
       - name: Upload CloudFormation templates to S3
         run: |
-          echo "Uploading standard template to s3://${{ vars.S3_BUCKET }}/${{ vars.S3_FILE_KEY }}"
+          echo "Uploading CloudFront template to s3://${{ vars.S3_BUCKET }}/${{ vars.S3_FILE_KEY }}"
           aws s3 cp infrastructure/templates/cloudfront.yaml s3://${{ vars.S3_BUCKET }}/${{ vars.S3_FILE_KEY }}
+          
+          echo "Uploading cleanup template to s3://${{ vars.S3_BUCKET }}/remove-cloudfront.yaml"
+          aws s3 cp infrastructure/templates/remove-cloudfront.yaml s3://${{ vars.S3_BUCKET }}/remove-cloudfront.yaml
           
           # Verify uploads
           echo "Verifying template accessibility..."
           curl -f -I https://${{ vars.S3_BUCKET }}.s3.amazonaws.com/${{ vars.S3_FILE_KEY }}
+          curl -f -I https://${{ vars.S3_BUCKET }}.s3.amazonaws.com/remove-cloudfront.yaml
           
           echo "✅ Templates successfully deployed!"
-          echo "Standard Template URL: https://${{ vars.S3_BUCKET }}.s3.amazonaws.com/${{ vars.S3_FILE_KEY }}"
+          echo "CloudFront Template URL: https://${{ vars.S3_BUCKET }}.s3.amazonaws.com/${{ vars.S3_FILE_KEY }}"
+          echo "Cleanup Template URL: https://${{ vars.S3_BUCKET }}.s3.amazonaws.com/remove-cloudfront.yaml"
 
       - name: Update deployment status
         run: |
-          echo "::notice title=Templates Deployed::CloudFormation templates updated - Standard: https://${{ vars.S3_BUCKET }}.s3.amazonaws.com/${{ vars.S3_FILE_KEY }}"
+          echo "::notice title=Templates Deployed::CloudFormation templates updated - CloudFront: https://${{ vars.S3_BUCKET }}.s3.amazonaws.com/${{ vars.S3_FILE_KEY }}, Cleanup: https://${{ vars.S3_BUCKET }}.s3.amazonaws.com/remove-cloudfront.yaml"
