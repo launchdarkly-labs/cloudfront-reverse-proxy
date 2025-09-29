@@ -1,0 +1,12 @@
+# Global code owners for the entire repository
+* @devopsdina
+
+# CloudFormation templates require review from infrastructure owners
+/infrastructure/ @devopsdina
+
+# GitHub Actions workflows
+/.github/ @devopsdina
+
+# Documentation
+README.md @devopsdina
+LICENSE @devopsdina
