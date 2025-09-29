@@ -56,6 +56,10 @@ The template is automatically updated via GitHub Actions when changes are merged
 - **PriceClass_200**: Adds Middle East, Africa - Medium cost  
 - **PriceClass_All**: Global coverage - Highest cost
 
+### Limitations
+
+> **Note:** Only one sub-domain address was tested (e.g., `flags.mydomain.com`). Behavior may be different or not work if you're trying to use multiple sub-domains such as `my.flags.mydomain.com`.
+
 
 
 ### Option 1: AWS CloudFront Reverse proxy with Custom DNS
