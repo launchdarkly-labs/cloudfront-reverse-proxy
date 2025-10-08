@@ -1,5 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: CloudFront proxy for LaunchDarkly with automatic certificate creation and DNS validation
+Description: CloudFront proxy for LaunchDarkly with automatic certificate creation and DNS validation (v1.0.0)
+
+Metadata:
+  Version: '1.0.0'
+  LastUpdated: '2024-10-08'
+  Author: 'AWS CloudFront Proxy for LaunchDarkly'
 
 Parameters:
   UseCustomDomain:

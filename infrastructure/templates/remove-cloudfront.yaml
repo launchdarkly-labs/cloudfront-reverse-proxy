@@ -1,5 +1,10 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Comprehensive cleanup template - deletes CloudFormation stack, DNS records, and certificates'
+Description: 'Comprehensive cleanup template - deletes CloudFormation stack, DNS records, and certificates (v1.0.0)'
+
+Metadata:
+  Version: '1.0.0'
+  LastUpdated: '2024-10-08'
+  Author: 'AWS CloudFront Proxy for LaunchDarkly'
 
 Parameters:
   StackNameToDelete:
