@@ -32,7 +32,6 @@ Conditions:
   ShouldCleanupCertificate: !And [!Condition HasDomainName, !Equals [!Ref CleanupCertificate, 'true']]
 
 Resources:
-  # IAM Role for the cleanup Lambda function
   CleanupLambdaRole:
     Type: AWS::IAM::Role
     Properties:
@@ -79,7 +78,6 @@ Resources:
                   - acm:DeleteCertificate
                 Resource: '*'
 
-  # Lambda function that deletes the CloudFront stack
   CleanupLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -99,7 +97,6 @@ Resources:
               """Delete Route 53 A records and ACM validation CNAME records for the domain"""
               route53 = boto3.client('route53')
               
-              # Find hosted zone for domain
               root_domain = '.'.join(domain_name.split('.')[-2:]) + '.'
               print(f"Looking for hosted zone: {root_domain}")
               
@@ -118,7 +115,6 @@ Resources:
                   print(f"No hosted zone found for {root_domain}")
                   return
               
-              # List ALL records in hosted zone (handle pagination)
               paginator = route53.get_paginator('list_resource_record_sets')
               all_records = []
               
@@ -129,24 +125,32 @@ Resources:
               
               records_to_delete = []
               
-              # Find records to delete
               for record in all_records:
                   record_name = record['Name'].rstrip('.')
-                  print(f"Checking record: {record_name} (type: {record['Type']})")
+                  record_type = record['Type']
+                  print(f"Checking record: {record_name} (type: {record_type})")
                   
-                  # Delete A record for our domain
-                  if record_name == domain_name and record['Type'] == 'A':
+                  if record_name == domain_name and record_type == 'A':
                       records_to_delete.append(('A', record))
                       print(f"Found A record to delete: {domain_name}")
                   
-                  # Delete ACM validation CNAME records (start with _ and contain our domain)
-                  elif record['Type'] == 'CNAME' and record_name.startswith('_') and domain_name in record_name:
-                      records_to_delete.append(('CNAME', record))
-                      print(f"Found ACM validation CNAME to delete: {record_name}")
+                  elif record_type == 'CNAME' and record_name.startswith('_'):
+                      is_acm_validation = False
+                      
+                      if domain_name in record_name:
+                          is_acm_validation = True
+                      elif record.get('ResourceRecords'):
+                          for rr in record['ResourceRecords']:
+                              if '.acm-validations.aws.' in rr.get('Value', ''):
+                                  is_acm_validation = True
+                                  break
+                      
+                      if is_acm_validation:
+                          records_to_delete.append(('CNAME', record))
+                          print(f"Found ACM validation CNAME to delete: {record_name}")
               
               print(f"Total records to delete: {len(records_to_delete)}")
               
-              # Delete records in batch if any found
               if records_to_delete:
                   changes = []
                   for record_type, record in records_to_delete:
@@ -170,9 +174,8 @@ Resources:
 
           def cleanup_acm_certificates(domain_name):
               """Delete ACM certificates for the domain"""
-              acm = boto3.client('acm', region_name='us-east-1')  # Certificates for CloudFront must be in us-east-1
+              acm = boto3.client('acm', region_name='us-east-1')  # CloudFront requires certificates in us-east-1
               
-              # List all certificates
               paginator = acm.get_paginator('list_certificates')
               
               for page in paginator.paginate():
@@ -248,14 +251,12 @@ Resources:
                       cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": "Cleanup completed"})
                   
                   else:
-                      # Update case
                       cfnresponse.send(event, context, cfnresponse.SUCCESS, {"Message": "No action required"})
                       
               except Exception as e:
                   print(f"Error: {str(e)}")
                   cfnresponse.send(event, context, cfnresponse.FAILED, {"Message": str(e)})
 
-  # Custom resource that triggers the Lambda function
   TriggerCleanup:
     Type: AWS::CloudFormation::CustomResource
     Properties:
