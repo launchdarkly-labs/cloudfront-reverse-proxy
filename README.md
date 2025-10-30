@@ -40,6 +40,42 @@ You can deploy to any AWS region by changing `region=us-east-1` in the URL to yo
 
 The template is automatically updated via GitHub Actions when changes are merged to main for `infrastructure/cloudfront.yaml`
 
+## Prerequisites for Custom Domain
+
+When using a custom domain (`UseCustomDomain=true`), ensure the following prerequisites are met:
+
+### Route 53 Hosted Zone
+
+The custom domain must have a **public** Route 53 hosted zone in the same AWS account, and **Route 53 must be authoritative** for the domain (the domain's NS records at the registrar must point to Route 53 nameservers).
+
+**What happens automatically:**
+1. The template looks up the hosted zone for your domain (e.g., `example.com` for `flags.example.com`)
+2. ACM creates an SSL certificate with DNS validation
+3. ACM automatically creates DNS validation CNAME records in Route 53
+4. CloudFormation waits for certificate validation to complete
+5. CloudFront distribution is created with the validated certificate
+6. DNS A record is created pointing to the CloudFront distribution
+
+**Why DNS delegation matters:**
+- ACM creates validation CNAME records in your Route 53 hosted zone
+- For validation to succeed, public DNS queries must resolve to Route 53 (not CloudFlare, GoDaddy, etc.)
+- If the domain is delegated elsewhere, ACM cannot see its own validation records and the certificate remains in `PENDING_VALIDATION` indefinitely
+
+**Verify Route 53 is authoritative for your domain:**
+```bash
+# Check public DNS nameservers for your domain
+dig +short NS yourdomain.com
+
+# Get your Route 53 nameservers
+aws route53 get-hosted-zone --id YOUR_HOSTED_ZONE_ID \
+  --query "DelegationSet.NameServers" --output table
+
+# These should match!
+```
+
+**If they don't match: this will not work!**
+Alternatively, you may update your domain registrar's NS records to point to the Route 53 nameservers shown in the above command.  WARNING! This is a much larger change and should not be performed without understanding the full impact.
+
 ## Configuration Options
 
 | Parameter | Default | Options | Description |
@@ -68,13 +104,14 @@ The template is automatically updated via GitHub Actions when changes are merged
 
 ```bash
 aws cloudformation deploy \
-  --template-file templates/cloudfront.yaml \
+  --template-file infrastructure/templates/cloudfront.yaml \
   --stack-name ld-cloudfront-proxy \
   --parameter-overrides \
     UseCustomDomain=true \
     DomainName=flags.my-company-domain.com \
     PriceClass=PriceClass_100 \
-  --capabilities CAPABILITY_IAM
+  --capabilities CAPABILITY_IAM \
+  --region us-east-1
 ```
 
 Your reverse proxy URL will be the DomainName specified in the above command, but you can also run the below command to get it:
@@ -98,12 +135,13 @@ This will return your CloudFront domain (e.g., `flags.my-company-domain.com`)
 cd infrastructure
 
 aws cloudformation deploy \
-  --template-file templates/cloudfront.yaml \
+  --template-file infrastructure/templates/cloudfront.yaml \
   --stack-name ld-cloudfront-proxy \
   --parameter-overrides \
     UseCustomDomain=false \
     PriceClass=PriceClass_100 \
-    EnableLogging=false
+    EnableLogging=false \
+  --region us-east-1
 ```
 
 ### Get Your Proxy URL
@@ -160,16 +198,18 @@ NOTE: You may need to restart your application.
 ### Automated Cleanup (Recommended)
 ```bash
 aws cloudformation deploy \
-  --template-file templates/remove-cloudfront.yaml \
+  --template-file infrastructure/templates/remove-cloudfront.yaml \
   --stack-name cleanup-ld-cloudfront \
   --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides StackNameToDelete=ld-cloudfront-proxy
+  --parameter-overrides \
+    StackNameToDelete=ld-cloudfront-proxy \
+    DomainName=flags.my-company-domain.com \
+    CleanupDNS=true \
+    CleanupCertificate=true \
+  --region us-east-1
 ```
 
-### Manual Cleanup
-```bash
-aws cloudformation delete-stack --stack-name ld-cloudfront-proxy
-```
+
 
 **Deletion time:** ~15-20 minutes (CloudFront global propagation)
 

@@ -34,7 +34,6 @@ Conditions:
   UseLogging: !Equals [!Ref EnableLogging, 'true']
 
 Resources:
-  # Lambda function to look up Route 53 hosted zone ID
   HostedZoneLookupRole:
     Type: AWS::IAM::Role
     Condition: UseCustomDomain
@@ -72,7 +71,6 @@ Resources:
         ZipFile: |
           import boto3
           import cfnresponse
-          import json
           
           def handler(event, context):
               try:
@@ -80,35 +78,36 @@ Resources:
                       cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
                       return
                   
-                  domain_name = event['ResourceProperties']['DomainName']
+                  domain_name = event['ResourceProperties']['DomainName'].rstrip('.')
+                  r53 = boto3.client('route53')
                   
-                  # Extract the root domain from subdomain
-                  # e.g., flags.example.com -> example.com
-                  domain_parts = domain_name.split('.')
-                  if len(domain_parts) >= 2:
-                      root_domain = '.'.join(domain_parts[-2:]) + '.'
-                  else:
-                      root_domain = domain_name + '.'
+                  labels = domain_name.split('.')
+                  candidates = ['.'.join(labels[i:]) + '.' for i in range(len(labels)-1)]
                   
-                  route53 = boto3.client('route53')
-                  
-                  # List all hosted zones
-                  paginator = route53.get_paginator('list_hosted_zones')
-                  
+                  chosen = None
+                  paginator = r53.get_paginator('list_hosted_zones')
+                  zones = []
                   for page in paginator.paginate():
-                      for zone in page['HostedZones']:
-                          if zone['Name'] == root_domain:
-                              zone_id = zone['Id'].replace('/hostedzone/', '')
-                              cfnresponse.send(event, context, cfnresponse.SUCCESS, {
-                                  'HostedZoneId': zone_id,
-                                  'RootDomain': root_domain
-                              })
-                              return
+                      zones.extend(page['HostedZones'])
                   
-                  # If no hosted zone found
-                  cfnresponse.send(event, context, cfnresponse.FAILED, {}, 
-                                 f"No Route 53 hosted zone found for domain: {root_domain}")
+                  public_zones = [z for z in zones if not z.get('Config', {}).get('PrivateZone', False)]
                   
+                  for cand in candidates:
+                      for z in public_zones:
+                          if z['Name'] == cand:
+                              chosen = z
+                              break
+                      if chosen:
+                          break
+                  
+                  if not chosen:
+                      raise Exception(f"No matching PUBLIC hosted zone found for {domain_name} (candidates: {candidates})")
+                  
+                  zone_id = chosen['Id'].split('/')[-1]
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                      'HostedZoneId': zone_id,
+                      'MatchedZoneName': chosen['Name']
+                  })
               except Exception as e:
                   print(f"Error: {str(e)}")
                   cfnresponse.send(event, context, cfnresponse.FAILED, {}, str(e))
@@ -133,6 +132,7 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub '${AWS::StackName}-certificate'
+    DependsOn: HostedZoneLookup
 
   # CloudFront Response Headers Policy
   CfResponseHeadersPolicy:
@@ -149,7 +149,6 @@ Resources:
           AccessControlExposeHeaders: { Items: ['ETag','Cache-Control','Content-Type'] }
           OriginOverride: true
 
-  # CloudFront Origin Request Policy
   CfOriginRequestPolicy:
     Type: AWS::CloudFront::OriginRequestPolicy
     Properties:
@@ -187,7 +186,6 @@ Resources:
           QueryStringsConfig:
             QueryStringBehavior: "all"
 
-  # CloudFront Cache Policy - No Cache for Streaming
   CfNoCachePolicy:
     Type: AWS::CloudFront::CachePolicy
     Properties:
@@ -204,7 +202,6 @@ Resources:
           HeadersConfig: { HeaderBehavior: "none" }
           QueryStringsConfig: { QueryStringBehavior: "all" }
 
-  # CloudFront Distribution
   CfDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
@@ -347,7 +344,6 @@ Resources:
             Prefix: cloudfront-logs/
           - !Ref AWS::NoValue
 
-  # Automatic DNS Record Creation
   DNSRecord:
     Type: AWS::Route53::RecordSet
     Condition: UseCustomDomain
@@ -357,7 +353,7 @@ Resources:
       Type: A
       AliasTarget:
         DNSName: !GetAtt CfDistribution.DomainName
-        HostedZoneId: Z2FDTNDATAQYW2  # CloudFront hosted zone ID
+        HostedZoneId: Z2FDTNDATAQYW2  # AWS's hardcoded global Hosted Zone ID for ALL CloudFront distributions
         EvaluateTargetHealth: false
 
 Outputs:
