@@ -96,6 +96,19 @@ Alternatively, you may update your domain registrar's NS records to point to the
 
 > **Note:** Only one sub-domain address was tested (e.g., `flags.mydomain.com`). Behavior may be different or not work if you're trying to use multiple sub-domains such as `my.flags.mydomain.com`.
 
+## Known Limitations
+
+### Streaming Connection Timeout
+
+> **⚠️ Important:** AWS CloudFront has a maximum idle connection timeout of **120 seconds**, but LaunchDarkly streaming endpoints send heartbeats every **180 seconds**. This mismatch causes streaming connections to close and reconnect approximately every 2 minutes.
+
+**Impact:**
+- Flag evaluations and updates continue to work correctly
+- The LaunchDarkly SDK handles reconnection automatically
+- Logs may show frequent connection retry events
+
+**Workarounds:**
+1. **Request AWS Exception**: Contact AWS Support to request an increase to the CloudFront idle timeout to 180 seconds. This requires special approval from AWS.
 
 
 ### Option 1: AWS CloudFront Reverse proxy with Custom DNS
