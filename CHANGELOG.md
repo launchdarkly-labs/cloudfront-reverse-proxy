@@ -11,9 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Apache 2.0 License
 - CONTRIBUTING.md with development guidelines and testing procedures
 - CHANGELOG.md to track project changes
+- `tests/stream-drop`: headless browser test that fails if the proxy closes and reopens the LaunchDarkly streaming connection
 
 ### Changed
 - Updated README.md to include license section
+
+### Fixed
+- Lambda runtimes moved from deprecated `python3.9` to `python3.13` in both templates
+- Streaming connections no longer drop every 30 seconds: `OriginReadTimeout` set to 120 seconds on the `clientstream.launchdarkly.com` origin
+- CORS policy now exposes the `Date` header, which the browser SDK reads from event responses
+- README: Option 2 deploy command no longer runs `cd infrastructure` before using a repo-relative path
+- README: missing closing quote on `streamUrl` in the React SDK example
+- README: GitHub Actions template paths corrected to `infrastructure/templates/`
+- README: streaming timeout limitation rewritten with measured heartbeat intervals
 
 ## [1.0.0] - 2024-10-08
 

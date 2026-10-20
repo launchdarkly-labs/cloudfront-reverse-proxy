@@ -38,7 +38,7 @@ You can deploy to any AWS region by changing `region=us-east-1` in the URL to yo
 
 **Template URL:** `https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/cloudfront.yaml`
 
-The template is automatically updated via GitHub Actions when changes are merged to main for `infrastructure/cloudfront.yaml`
+The templates are automatically updated via GitHub Actions when changes to `infrastructure/templates/cloudfront.yaml` or `infrastructure/templates/remove-cloudfront.yaml` are merged to main
 
 ## Prerequisites for Custom Domain
 
@@ -100,15 +100,19 @@ Alternatively, you may update your domain registrar's NS records to point to the
 
 ### Streaming Connection Timeout
 
-> **⚠️ Important:** AWS CloudFront has a maximum idle connection timeout of **120 seconds**, but LaunchDarkly streaming endpoints send heartbeats every **180 seconds**. This mismatch causes streaming connections to close and reconnect approximately every 2 minutes.
+> **⚠️ Important:** CloudFront closes an origin connection that sends nothing for longer than its origin response timeout (`OriginReadTimeout`). The default is **30 seconds**, which drops idle streaming connections between LaunchDarkly heartbeats. This template sets it to **120 seconds** on the `clientstream.launchdarkly.com` origin, the maximum without an AWS quota increase.
 
-**Impact:**
+**Observed behavior** (October 2026, `clientstream.launchdarkly.com` through this proxy):
+- Heartbeats arrived 61–90 seconds apart, inside the 120 second timeout
+- A stream stayed open for the full 7 minute test with no reconnects
+- With the 30 second default, the same stream closed after exactly 30 seconds
+
+**If heartbeat gaps ever exceed 120 seconds:**
 - Flag evaluations and updates continue to work correctly
 - The LaunchDarkly SDK handles reconnection automatically
 - Logs may show frequent connection retry events
 
-**Workarounds:**
-1. **Request AWS Exception**: Contact AWS Support to request an increase to the CloudFront idle timeout to 180 seconds. This requires special approval from AWS.
+**Workaround:** Request a quota increase for the CloudFront origin response timeout, then raise `OriginReadTimeout` on `LDClientStreamOrigin` in `infrastructure/templates/cloudfront.yaml` to match. This requires approval from AWS.
 
 
 ### Option 1: AWS CloudFront Reverse proxy with Custom DNS
@@ -145,8 +149,6 @@ This will return your CloudFront domain (e.g., `flags.my-company-domain.com`)
 **Deployment time:** ~15-20 minutes (CloudFront global propagation)
 
 ```bash
-cd infrastructure
-
 aws cloudformation deploy \
   --template-file infrastructure/templates/cloudfront.yaml \
   --stack-name ld-cloudfront-proxy \
@@ -183,7 +185,7 @@ const LDProvider = await asyncWithLDProvider({
   options: {
     baseUrl: 'https://flags.my-company-domain.com',
     eventsUrl: 'https://flags.my-company-domain.com', 
-    streamUrl: 'https://flags.my-company-domain.com
+    streamUrl: 'https://flags.my-company-domain.com'
   }
 });
 ```
@@ -244,6 +246,19 @@ aws configure list-profiles
 # Test connectivity
 aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE --output table
 ```
+
+### Test for Streaming Connection Drops
+
+If streaming connections are closed early, browser dev tools show the `eventsource` request ending in `(failed) net::ERR_HTTP2_PROTOCOL_ERROR`, and the SDK logs a stream error and reconnects. `tests/stream-drop` checks for this: it runs the LaunchDarkly React SDK in headless Chromium against your proxy, holds the stream open, and fails if the connection is ever closed and reopened. A second stream records each heartbeat, so a drop can be compared with the time since the last data.
+
+```bash
+cd tests/stream-drop
+npm install
+npx playwright install chromium
+PROXY_URL=https://flags.my-company-domain.com CLIENT_SIDE_ID=your-client-side-id DURATION_SECONDS=480 npm test
+```
+
+The test exits `0` on pass and `1` on fail. Changing a flag during the run is optional; each update is logged.
 
 ## SDK Compatibility
 
