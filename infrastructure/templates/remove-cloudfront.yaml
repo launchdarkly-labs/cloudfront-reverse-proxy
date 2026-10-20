@@ -82,7 +82,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub '${AWS::StackName}-cleanup-function'
-      Runtime: python3.9
+      Runtime: python3.13
       Handler: index.lambda_handler
       Role: !GetAtt CleanupLambdaRole.Arn
       Timeout: 900  # 15 minutes

@@ -63,7 +63,7 @@ Resources:
     Condition: UseCustomDomain
     Properties:
       FunctionName: !Sub '${AWS::StackName}-hosted-zone-lookup'
-      Runtime: python3.9
+      Runtime: python3.13
       Handler: index.handler
       Role: !GetAtt HostedZoneLookupRole.Arn
       Timeout: 30
@@ -146,7 +146,8 @@ Resources:
           AccessControlAllowHeaders: { Items: ['*'] }
           AccessControlAllowMethods: { Items: ['GET','HEAD','POST','OPTIONS'] }
           AccessControlAllowOrigins: { Items: ['*'] }
-          AccessControlExposeHeaders: { Items: ['ETag','Cache-Control','Content-Type'] }
+          # Date is what LaunchDarkly's events endpoint exposes; the browser SDK reads it from event responses.
+          AccessControlExposeHeaders: { Items: ['ETag','Cache-Control','Content-Type','Date'] }
           OriginOverride: true
 
   CfOriginRequestPolicy:
@@ -232,6 +233,8 @@ Resources:
             CustomOriginConfig:
               OriginProtocolPolicy: https-only
               OriginSSLProtocols: ['TLSv1.2']
+              # SSE streams are idle between heartbeats; the 30s default drops them. 120s is the max without an AWS quota increase.
+              OriginReadTimeout: 120
           - Id: LDAppOrigin
             DomainName: app.launchdarkly.com
             CustomOriginConfig:
