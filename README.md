@@ -231,6 +231,14 @@ terraform init
 terraform test
 ```
 
+Pull requests also run these linters, which you can run locally from the same directory. CI pins tflint v0.60.0, Trivy v0.76.1 and terraform-docs v0.21.0:
+
+```bash
+tflint --init && tflint --recursive   # includes tflint-ruleset-aws, see .tflint.hcl
+trivy config --exit-code 1 .          # suppressions are inline in main.tf, each with its reason
+terraform-docs .                      # regenerates the tables above; commit any change to README.md
+```
+
 The integration test deploys the proxy to a real AWS account with a custom domain, sends a request through the flag, events, `/v1/traces` and `/observability` routes, and then destroys everything, even when a check fails. It needs credentials for an account with a public Route 53 hosted zone for the domain, a Terraform version that allows `variable` blocks in test files (tested on 1.16.6), and takes about 10 minutes:
 
 ```bash
