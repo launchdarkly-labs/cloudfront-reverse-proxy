@@ -1,8 +1,8 @@
-name: Deploy proxy
+name: Deploy or destroy proxy
 
 # Deploys or destroys the proxy in your AWS account, with Terraform or CloudFormation. Start it from the
-# Actions tab (Deploy proxy > Run workflow). In launchdarkly-labs/cloudfront-reverse-proxy only admins can
-# run it; in a fork, anyone with write access can.
+# Actions tab (Deploy or destroy proxy > Run workflow). In launchdarkly-labs/cloudfront-reverse-proxy only
+# admins can run it; in a fork, anyone with write access can.
 #
 # Setup: a GitHub environment named "deploy" with
 #   secret   AWS_DEPLOY_ROLE_ARN  IAM role this environment can assume through GitHub OIDC (see the README)
@@ -17,15 +17,15 @@ on:
   workflow_dispatch:
     inputs:
       tool:
-        description: Deploy with
+        description: Terraform or CloudFormation (destroy with the tool you deployed with)
         type: choice
         options: [terraform, cloudformation]
       action:
-        description: Action
+        description: Deploy or destroy the proxy
         type: choice
         options: [deploy, destroy]
       confirm_destroy:
-        description: To destroy, type the proxy name (PROXY_NAME, or ld-cloudfront-proxy)
+        description: "Only for destroy: type the proxy name (PROXY_NAME, or ld-cloudfront-proxy)"
         type: string
         default: ''
 

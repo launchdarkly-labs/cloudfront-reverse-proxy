@@ -85,7 +85,7 @@ Alternatively, you may update your domain registrar's NS records to point to the
 | `PriceClass` | `PriceClass_100` | `PriceClass_100`/`200`/`All` | Coverage: US/Canada/Europe/Asia (100) vs Global (All) |
 | `EnableLogging` | `false` | `true`/`false` | Enable CloudFront access logging |
 | `LoggingBucket` | `""` | S3 bucket name | Required if EnableLogging=true |
-| `PermissionsBoundaryArn` | `""` | Managed policy ARN | Optional permissions boundary for the hosted zone lookup role. The **Deploy proxy** workflow sets it (see [Option 4](#option-4-deploy-from-github-actions-in-your-fork)). |
+| `PermissionsBoundaryArn` | `""` | Managed policy ARN | Optional permissions boundary for the hosted zone lookup role. The **Deploy or destroy proxy** workflow sets it (see [Option 4](#option-4-deploy-from-github-actions-in-your-fork)). |
 
 ### Price Class Options
 
@@ -254,7 +254,7 @@ To deploy from GitHub Actions in your own fork instead, see [Option 4](#option-4
 
 ### Option 4: Deploy from GitHub Actions in your fork
 
-Fork this repository, and the **Deploy proxy** workflow (`.github/workflows/deploy.yml`) deploys or destroys the proxy in your AWS account with Terraform or CloudFormation. In your fork, anyone with write access can run it. In `launchdarkly-labs/cloudfront-reverse-proxy` itself, only repository admins can.
+Fork this repository, and the **Deploy or destroy proxy** workflow (`.github/workflows/deploy.yml`) deploys or destroys the proxy in your AWS account with Terraform or CloudFormation. In your fork, anyone with write access can run it. In `launchdarkly-labs/cloudfront-reverse-proxy` itself, only repository admins can.
 
 The workflow signs in to AWS with GitHub's OpenID Connect (OIDC) tokens, so no AWS keys are stored in GitHub. Each run gets credentials that expire after an hour, and only if the role's trust policy accepts the run. The policies in `.github/iam` limit the role to the proxy's own resources:
 
@@ -312,7 +312,7 @@ In every file, replace `ACCOUNT_ID`, `HOSTED_ZONE_ID`, `PROXY_NAME`, `PROXY_DOMA
    | `TF_STATE_BUCKET` | Variable, Terraform only | The bucket from step 2. The state is stored at `<PROXY_NAME>/terraform.tfstate`. |
 
 6. Protect `main` with a branch ruleset that requires an approved pull request, so a workflow change has to be reviewed before it can deploy.
-7. Go to **Actions** > **Deploy proxy** > **Run workflow**, and choose `terraform` or `cloudformation` and `deploy`. The proxy URL is printed in the log of the deploy step.
+7. Go to **Actions** > **Deploy or destroy proxy** > **Run workflow**, and choose `terraform` or `cloudformation` and `deploy`. The proxy URL is printed in the log of the deploy step.
 
 To remove the proxy, run the workflow with the same tool, choose `destroy`, and type the proxy name in `confirm_destroy`. Use one tool per domain, because Terraform and CloudFormation don't know about each other's resources.
 
@@ -490,7 +490,7 @@ Each project configures its SDK independently using different SDK keys and base 
 |---|---|---|
 | **Terraform checks** (`terraform.yml`) | On pull requests | Offline Terraform checks: fmt, validate, tests, tflint, Trivy and the docs tables. No AWS access. |
 | **Deploy CloudFormation Template to S3** (`deploy-template-to-s3-bucket.yml`) | When the templates change on `main`, or by hand | Uploads the templates behind the one-click deploy buttons |
-| **Deploy proxy** (`deploy.yml`) | By hand | Deploys or destroys the proxy in your AWS account. See [Option 4](#option-4-deploy-from-github-actions-in-your-fork). |
+| **Deploy or destroy proxy** (`deploy.yml`) | By hand | Deploys or destroys the proxy in your AWS account. See [Option 4](#option-4-deploy-from-github-actions-in-your-fork). |
 | **Terraform integration test** (`terraform-integration.yml`) | By hand, and before each release | Deploys the Terraform module to AWS, checks every route, and destroys it. See [CONTRIBUTING.md](CONTRIBUTING.md#terraform-integration-test-in-github-actions). |
 | **Release** (`release.yml`) | When a `v*` tag is pushed | Publishes a GitHub release. See [CONTRIBUTING.md](CONTRIBUTING.md#releasing). |
 
