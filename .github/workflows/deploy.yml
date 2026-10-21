@@ -1,0 +1,178 @@
+name: Deploy or destroy proxy
+
+# Deploys or destroys the proxy in your AWS account, with Terraform or CloudFormation. Start it from the
+# Actions tab (Deploy or destroy proxy > Run workflow). In launchdarkly-labs/cloudfront-reverse-proxy only
+# admins can run it; in a fork, anyone with write access can.
+#
+# Setup: a GitHub environment named "deploy" with
+#   secret   AWS_DEPLOY_ROLE_ARN  IAM role this environment can assume through GitHub OIDC (see the README)
+#   secret   PROXY_DOMAIN_NAME    Optional custom domain, in a public Route 53 hosted zone. A secret so
+#                                 GitHub masks it in the logs. Leave it unset to use the CloudFront domain.
+#   variable PROXY_NAME           Optional. Stack name and resource name prefix; ld-cloudfront-proxy if unset
+#   variable TF_STATE_BUCKET      S3 bucket for Terraform state, in us-east-1. Only needed for Terraform.
+#
+# Deploy with one tool per domain: the two don't know about each other's resources.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tool:
+        description: Terraform or CloudFormation (destroy with the tool you deployed with)
+        type: choice
+        options: [terraform, cloudformation]
+      action:
+        description: Deploy or destroy the proxy
+        type: choice
+        options: [deploy, destroy]
+      confirm_destroy:
+        description: "Only for destroy: type the proxy name (PROXY_NAME, or ld-cloudfront-proxy)"
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+# One run at a time for each tool, and never cancel a run part way through a deploy or destroy.
+concurrency:
+  group: deploy-${{ inputs.tool }}
+  cancel-in-progress: false
+
+jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Admins only in launchdarkly-labs/cloudfront-reverse-proxy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.triggering_actor }}
+        run: .github/scripts/require-admin.sh
+
+  deploy:
+    needs: authorize
+    runs-on: ubuntu-latest
+    # Secrets come from the environment, so only this job, after the admin check, can read them.
+    environment: deploy
+    # Ends before the 1-hour AWS credentials do.
+    timeout-minutes: 55
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      AWS_REGION: us-east-1
+      TOOL: ${{ inputs.tool }}
+      ACTION: ${{ inputs.action }}
+      CONFIRM_DESTROY: ${{ inputs.confirm_destroy }}
+      PROXY_NAME: ${{ vars.PROXY_NAME || 'ld-cloudfront-proxy' }}
+      PROXY_DOMAIN_NAME: ${{ secrets.PROXY_DOMAIN_NAME }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Settings are complete
+        env:
+          HAS_ROLE: ${{ secrets.AWS_DEPLOY_ROLE_ARN != '' }}
+        run: |
+          [ "$HAS_ROLE" = true ] || { echo "::error::Add the AWS_DEPLOY_ROLE_ARN secret to the \"deploy\" environment."; exit 1; }
+          if [ "$TOOL" = terraform ] && [ -z "$TF_STATE_BUCKET" ]; then
+            echo "::error::Add the TF_STATE_BUCKET variable to the \"deploy\" environment."; exit 1
+          fi
+          if [ "$ACTION" = destroy ] && [ "$CONFIRM_DESTROY" != "$PROXY_NAME" ]; then
+            echo "::error::To destroy, set confirm_destroy to ${PROXY_NAME}."; exit 1
+          fi
+          echo "${ACTION} ${PROXY_NAME} with ${TOOL}, $([ -n "$PROXY_DOMAIN_NAME" ] && echo "on the custom domain" || echo "on the CloudFront domain")."
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: deploy-proxy-${{ github.run_id }}
+
+      # Terraform: examples/basic with its state in S3. A *_override.tf file adds the backend without
+      # changing the example.
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        if: inputs.tool == 'terraform'
+        with:
+          terraform_version: latest
+          terraform_wrapper: false
+
+      - name: terraform init
+        if: inputs.tool == 'terraform'
+        working-directory: infrastructure/templates/terraform/examples/basic
+        run: |
+          printf 'terraform {\n  backend "s3" {}\n}\n' > backend_override.tf
+          terraform init -input=false \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=${PROXY_NAME}/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="use_lockfile=true"
+
+      - name: terraform ${{ inputs.action == 'deploy' && 'apply' || 'destroy' }}
+        if: inputs.tool == 'terraform'
+        working-directory: infrastructure/templates/terraform/examples/basic
+        run: |
+          args=(-input=false -var "name=${PROXY_NAME}" -var "domain_name=${PROXY_DOMAIN_NAME}")
+          if [ "$ACTION" = deploy ]; then
+            terraform plan "${args[@]}" -out=tfplan
+            terraform apply -input=false tfplan
+            # In the log, not the job summary, so a custom domain stays masked.
+            echo "Proxy URL: $(terraform output -raw proxy_url)"
+          else
+            terraform destroy "${args[@]}" -auto-approve
+          fi
+
+      - name: CloudFormation deploy
+        if: inputs.tool == 'cloudformation' && inputs.action == 'deploy'
+        run: |
+          if [ -n "$PROXY_DOMAIN_NAME" ]; then
+            # The deploy role can only create the hosted zone lookup role with this boundary attached.
+            account=$(aws sts get-caller-identity --query Account --output text)
+            params=(UseCustomDomain=true "DomainName=${PROXY_DOMAIN_NAME}"
+              "PermissionsBoundaryArn=arn:aws:iam::${account}:policy/LDProxyHostedZoneLookupBoundary")
+          else
+            params=(UseCustomDomain=false)
+          fi
+          aws cloudformation deploy \
+            --template-file infrastructure/templates/cloudformation/cloudfront.yaml \
+            --stack-name "$PROXY_NAME" \
+            --parameter-overrides "${params[@]}" \
+            --capabilities CAPABILITY_IAM \
+            --no-fail-on-empty-changeset
+          url=$(aws cloudformation describe-stacks --stack-name "$PROXY_NAME" \
+            --query "Stacks[0].Outputs[?OutputKey=='ProxyURL'].OutputValue | [0]" --output text)
+          # In the log, not the job summary, so a custom domain stays masked.
+          echo "Proxy URL: ${url}"
+
+      # Deleting the stack leaves the certificate's DNS validation record and the lookup function's log
+      # group, so delete those too. The validation record is only deleted once no certificate for the
+      # domain is left, so a certificate from another deployment stays valid.
+      - name: CloudFormation destroy
+        if: inputs.tool == 'cloudformation' && inputs.action == 'destroy'
+        run: |
+          aws cloudformation delete-stack --stack-name "$PROXY_NAME"
+          aws cloudformation wait stack-delete-complete --stack-name "$PROXY_NAME"
+          aws logs delete-log-group --log-group-name "/aws/lambda/${PROXY_NAME}-hosted-zone-lookup" 2>/dev/null || true
+
+          domain="$PROXY_DOMAIN_NAME"
+          [ -n "$domain" ] || exit 0
+          certs=$(aws acm list-certificates --query "CertificateSummaryList[?DomainName=='${domain}'].CertificateArn" --output text)
+          if [ -n "$certs" ]; then
+            echo "A certificate for the domain still exists, so its validation record stays."; exit 0
+          fi
+          parent="${domain#*.}"
+          zone=$(aws route53 list-hosted-zones-by-name --dns-name "$parent" \
+            --query "HostedZones[?Name=='${parent}.' && Config.PrivateZone==\`false\`].Id | [0]" --output text)
+          [ "$zone" != None ] || exit 0
+          # Only "_<token>.<domain>." records that point at ACM, not ones for subdomains of the domain.
+          aws route53 list-resource-record-sets --hosted-zone-id "$zone" \
+            --query "ResourceRecordSets[?Type=='CNAME']" --output json > cname-records.json
+          jq -c --arg domain "${domain}." '.[]
+            | select((.Name | startswith("_")) and (.Name | split(".") | .[1:] | join(".")) == $domain)
+            | select(.ResourceRecords[0].Value | endswith(".acm-validations.aws."))' cname-records.json |
+          while read -r record; do
+            aws route53 change-resource-record-sets --hosted-zone-id "$zone" \
+              --change-batch "{\"Changes\":[{\"Action\":\"DELETE\",\"ResourceRecordSet\":${record}}]}" > /dev/null
+            echo "Deleted the certificate validation record."
+          done

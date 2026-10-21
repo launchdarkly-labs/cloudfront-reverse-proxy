@@ -7,14 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-21
+
 ### Added
+- GitHub Actions workflows: an integration test, run by hand or before each release, that deploys the Terraform module to AWS, checks every route and fails if anything is left behind (the test domain and client-side ID come from environment secrets, so they stay out of logs), and a release workflow that publishes a GitHub release from a `v*` tag with its CHANGELOG section, generated notes and the templates attached
+- **Deploy or destroy proxy** GitHub Actions workflow, for running the proxy from a fork with Terraform or CloudFormation, with least-privilege IAM policies for its role in `.github/iam`
+- `PermissionsBoundaryArn` parameter in the CloudFormation template, to set a permissions boundary on the hosted zone lookup role
+- In this repository, only admins can run the workflows that use AWS; forks aren't restricted
 - Apache 2.0 License
 - CONTRIBUTING.md with development guidelines and testing procedures
 - CHANGELOG.md to track project changes
 - `tests/stream-drop`: headless browser test that fails if the proxy closes and reopens the LaunchDarkly streaming connection
+- Optional observability and session replay routes: `/v1/*` to `otel.observability.app.launchdarkly.com` and `/observability` to `pub.observability.app.launchdarkly.com`
+- `tests/perf`: latency tests comparing the proxy with direct connections, for each route and for SDK startup, optionally with the observability and session replay plugins
+- Terraform module (`infrastructure/templates/terraform`) equivalent to the CloudFormation template, with an `examples/basic` root configuration, offline `terraform test` checks against a mocked AWS provider, and an integration test that deploys to AWS and destroys what it created
+- GitHub Actions workflow that runs the Terraform offline checks on pull requests: fmt, validate and tests on Terraform 1.7.0 and the latest release, tflint with the AWS ruleset, Trivy, and a check that the README's terraform-docs tables are current
 
 ### Changed
+- CloudFormation templates moved to `infrastructure/templates/cloudformation/`, next to `infrastructure/templates/terraform/`. The S3 template URLs for the one-click deploy are unchanged.
 - Updated README.md to include license section
+- CloudFormation template versions set to 1.1.0; the release workflow checks they match the tag
 
 ### Fixed
 - Lambda runtimes moved from deprecated `python3.9` to `python3.13` in both templates
@@ -24,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README: missing closing quote on `streamUrl` in the React SDK example
 - README: GitHub Actions template paths corrected to `infrastructure/templates/`
 - README: streaming timeout limitation rewritten with measured heartbeat intervals
+
+## [1.0.1] - 2025-10-30
+
+### Fixed
+- Certificates for custom domains are provisioned and removed correctly in Route 53 hosted zones, in both the CloudFormation template and the cleanup template
 
 ## [1.0.0] - 2024-10-08
 
@@ -85,5 +102,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [Keep a Changelog](https://keepachangelog.com/)
 - [Semantic Versioning](https://semver.org/)
 
-[Unreleased]: https://github.com/your-org/cloudfront-reverse-proxy/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/your-org/cloudfront-reverse-proxy/releases/tag/v1.0.0
+[Unreleased]: https://github.com/launchdarkly-labs/cloudfront-reverse-proxy/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/launchdarkly-labs/cloudfront-reverse-proxy/compare/v1.0.1...v1.1.0
+[1.0.1]: https://github.com/launchdarkly-labs/cloudfront-reverse-proxy/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/launchdarkly-labs/cloudfront-reverse-proxy/releases/tag/v1.0.0

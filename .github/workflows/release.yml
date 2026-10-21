@@ -1,0 +1,126 @@
+name: Release
+
+# Publishes a GitHub release when a version tag is pushed:
+#
+#   1. Move the [Unreleased] entries in CHANGELOG.md under "## [X.Y.Z] - YYYY-MM-DD", update the links
+#      at the bottom, set the version in both CloudFormation templates, and merge that to main.
+#   2. git tag vX.Y.Z <merged commit on main> && git push origin vX.Y.Z
+#
+# In launchdarkly-labs/cloudfront-reverse-proxy the tag must be pushed by an admin. The release runs the
+# offline Terraform checks and the AWS integration test first. Its notes are the version's CHANGELOG
+# section, how to deploy that version, and GitHub's list of merged pull requests.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Admins only in launchdarkly-labs/cloudfront-reverse-proxy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.triggering_actor }}
+        run: .github/scripts/require-admin.sh
+
+      - name: Version
+        id: version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release tags must look like v1.2.3, not ${tag}."; exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::${tag} points at a commit that isn't on main. Tag a merged commit."; exit 1
+          fi
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: CHANGELOG has this version
+        run: .github/scripts/changelog-section.sh "${{ steps.version.outputs.version }}"
+
+      - name: Templates have this version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          for f in infrastructure/templates/cloudformation/cloudfront.yaml infrastructure/templates/cloudformation/remove-cloudfront.yaml; do
+            if ! grep -q "^  Version: '${VERSION}'$" "$f" || ! grep -q "(v${VERSION})" "$f"; then
+              echo "::error file=$f::Set Metadata.Version to '${VERSION}' and the Description's version to (v${VERSION})."; exit 1
+            fi
+          done
+
+  checks:
+    needs: prepare
+    uses: ./.github/workflows/terraform.yml
+
+  integration:
+    needs: prepare
+    # A called workflow gets no more permissions than this job grants; it needs OIDC for AWS.
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/terraform-integration.yml
+    secrets: inherit
+
+  release:
+    needs: [prepare, checks, integration]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Notes
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          {
+            .github/scripts/changelog-section.sh "$VERSION"
+            cat <<NOTES
+
+          ### Deploy this version
+
+          **CloudFormation:** download \`cloudfront.yaml\` below and create a stack from it, or use the one-click deploy buttons in the README.
+
+          **Terraform:**
+
+          \`\`\`hcl
+          module "ld_proxy" {
+            source = "github.com/${REPO}//infrastructure/templates/terraform?ref=v${VERSION}"
+            # Use a provider in us-east-1; see examples/basic.
+          }
+          \`\`\`
+          NOTES
+          } > notes.md
+          cat notes.md
+
+      - name: Assets
+        run: |
+          mkdir dist
+          cp infrastructure/templates/cloudformation/cloudfront.yaml infrastructure/templates/cloudformation/remove-cloudfront.yaml dist/
+          git archive --format=tar.gz --prefix="ld-cloudfront-proxy-terraform/" \
+            -o "dist/ld-cloudfront-proxy-terraform-${GITHUB_REF_NAME}.tar.gz" HEAD:infrastructure/templates/terraform
+          (cd dist && sha256sum -- * > SHA256SUMS)
+          cat dist/SHA256SUMS
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" dist/*
+          --verify-tag
+          --title "$GITHUB_REF_NAME"
+          --notes-file notes.md
+          --generate-notes

@@ -100,11 +100,11 @@ Before submitting changes, please verify:
 
 ```bash
 # Validate CloudFormation template
-aws cloudformation validate-template --template-body file://infrastructure/templates/cloudfront.yaml
+aws cloudformation validate-template --template-body file://infrastructure/templates/cloudformation/cloudfront.yaml
 
 # Deploy test stack
 aws cloudformation deploy \
-  --template-file infrastructure/templates/cloudfront.yaml \
+  --template-file infrastructure/templates/cloudformation/cloudfront.yaml \
   --stack-name test-ld-cloudfront-proxy \
   --parameter-overrides UseCustomDomain=false \
   --capabilities CAPABILITY_IAM
@@ -132,6 +132,58 @@ const LDProvider = await asyncWithLDProvider({
 aws cloudformation delete-stack --stack-name test-ld-cloudfront-proxy
 ```
 
+#### Terraform Integration Test in GitHub Actions
+
+`.github/workflows/terraform.yml` runs the offline Terraform checks on every pull request. `.github/workflows/terraform-integration.yml` deploys the module to AWS, checks every route, destroys everything, and fails if anything tagged with its run ID or any DNS record for the test domain is left. Start it from the Actions tab (**Terraform integration test** > **Run workflow**); the release workflow also runs it.
+
+It runs in a GitHub environment named `integration`, which needs three secrets:
+
+| Secret | Value |
+|---|---|
+| `AWS_INTEGRATION_ROLE_ARN` | IAM role the environment can assume through GitHub OIDC |
+| `TEST_DOMAIN_NAME` | Domain to deploy to, such as `proxy-ci.my-company-domain.com`, in a public Route 53 hosted zone |
+| `LD_CLIENT_SIDE_ID` | LaunchDarkly client-side ID |
+
+All three are secrets so GitHub masks them wherever they appear in the workflow logs. That keeps the test domain out of the logs, but not out of public view: ACM certificates are published in Certificate Transparency logs, and the DNS records resolve while a run is deploying.
+
+Create the role from the policies in `.github/iam`, replacing `ACCOUNT_ID`, `HOSTED_ZONE_ID` and `TEST_DOMAIN_NAME`. The trust policy only accepts jobs in this repository's `integration` environment that run from `main` or a `v*` tag, so a pull request or another branch can't use it. The permissions policy only allows DNS changes to the test domain and its certificate validation record, and certificates for the test domain:
+
+```bash
+aws iam create-role --role-name GitHubActions-CloudFrontProxyIntegration \
+  --assume-role-policy-document file://.github/iam/integration-trust-policy.json
+aws iam put-role-policy --role-name GitHubActions-CloudFrontProxyIntegration \
+  --policy-name terraform-integration \
+  --policy-document file://.github/iam/integration-permissions-policy.json
+```
+
+In this repository, only admins can run the integration test, the release and a manual template upload; each workflow checks with `.github/scripts/require-admin.sh` before it reads any secrets. Forks skip the check. A workflow edited on a branch or tagged commit could leave the check out, so these settings are what actually enforce it:
+
+- The `integration` environment's **Deployment branches and tags** allow only `main` and tags matching `v*`.
+- A tag ruleset on `v*` lets only admins create, update or delete those tags. Otherwise anyone with write access could tag a commit with an edited workflow and run it with the environment's secrets.
+- `main` needs an approved pull request, so the workflows on `main` are reviewed.
+- Optionally, required reviewers on the environment approve each run.
+
+## Releasing
+
+Releases are published by `.github/workflows/release.yml` when a version tag is pushed.
+
+1. In a pull request:
+   - Move the `[Unreleased]` entries in `CHANGELOG.md` under a new `## [X.Y.Z] - YYYY-MM-DD` heading, and update the comparison links at the bottom. Check the section with `.github/scripts/changelog-section.sh X.Y.Z`.
+   - In `cloudfront.yaml` and `remove-cloudfront.yaml`, set `Metadata.Version` to `'X.Y.Z'`, `LastUpdated` to the date, and the `(vX.Y.Z)` at the end of `Description`.
+2. After it merges, tag the merge commit on `main` and push the tag:
+
+   ```bash
+   git tag vX.Y.Z <commit on main>
+   git push origin vX.Y.Z
+   ```
+
+The workflow stops unless the tag looks like `vX.Y.Z`, points at a commit on `main`, has a CHANGELOG section, and matches the version in both templates. It then runs the offline Terraform checks and the integration test, and publishes the release:
+
+- **Notes:** the version's CHANGELOG section, how to deploy that version with CloudFormation or Terraform, and GitHub's generated list of merged pull requests.
+- **Assets:** `cloudfront.yaml`, `remove-cloudfront.yaml`, the Terraform module as a `.tar.gz`, and `SHA256SUMS`.
+
+Publishing a release doesn't change the one-click deploy templates: `deploy-template-to-s3-bucket.yml` still uploads them to S3 on every merge to `main`.
+
 ## Style Guidelines
 
 ### CloudFormation
@@ -153,7 +205,7 @@ aws cloudformation delete-stack --stack-name test-ld-cloudfront-proxy
 
 This project uses automated deployments via GitHub Actions and follows semantic versioning:
 
-1. **Changes to `infrastructure/templates/cloudfront.yaml`** main branch trigger automatic S3 updates
+1. **Changes to `infrastructure/templates/cloudformation/cloudfront.yaml`** main branch trigger automatic S3 updates
 2. **One-click deploy links** are automatically updated
 3. **Templates are validated** before deployment
 

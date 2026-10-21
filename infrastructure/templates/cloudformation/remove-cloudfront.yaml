@@ -1,9 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Comprehensive cleanup template - deletes CloudFormation stack, DNS records, and certificates (v1.0.0)'
+Description: 'Comprehensive cleanup template - deletes CloudFormation stack, DNS records, and certificates (v1.1.0)'
 
 Metadata:
-  Version: '1.0.0'
-  LastUpdated: '2024-10-08'
+  Version: '1.1.0'
+  LastUpdated: '2026-10-21'
   Author: 'AWS CloudFront Proxy for LaunchDarkly'
 
 Parameters:
@@ -14,7 +14,7 @@ Parameters:
   DomainName:
     Type: String
     Default: ''
-    Description: 'Custom domain to cleanup DNS and certificate (e.g., flags.launchdarklydemos.com). Leave empty to skip DNS/cert cleanup.'
+    Description: 'Custom domain to cleanup DNS and certificate (e.g., flags.example.com). Leave empty to skip DNS/cert cleanup.'
   CleanupDNS:
     Type: String
     Default: 'true'

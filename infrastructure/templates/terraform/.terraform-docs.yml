@@ -1,0 +1,25 @@
+# Writes the requirements, variables and outputs tables into the repository README:
+#   terraform-docs infrastructure/templates/terraform
+formatter: markdown table
+
+sections:
+  show:
+    - requirements
+    - inputs
+    - outputs
+
+output:
+  file: ../../../README.md
+  mode: inject
+  template: |-
+    <!-- BEGIN_TF_DOCS -->
+    {{ .Content }}
+    <!-- END_TF_DOCS -->
+
+settings:
+  anchor: false
+  indent: 5
+  html: false
+  hide-empty: true
+  lockfile: false
+  sensitive: false
