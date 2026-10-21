@@ -10,6 +10,8 @@ on:
       - 'README.md'
       - '.github/workflows/terraform.yml'
   workflow_dispatch:
+  # Called by release.yml before publishing.
+  workflow_call:
 
 permissions:
   contents: read

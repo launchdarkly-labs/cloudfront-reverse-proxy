@@ -1,0 +1,81 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CloudFront",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:CreateDistribution",
+        "cloudfront:GetDistribution",
+        "cloudfront:GetDistributionConfig",
+        "cloudfront:UpdateDistribution",
+        "cloudfront:DeleteDistribution",
+        "cloudfront:TagResource",
+        "cloudfront:UntagResource",
+        "cloudfront:ListTagsForResource",
+        "cloudfront:CreateFunction",
+        "cloudfront:DescribeFunction",
+        "cloudfront:GetFunction",
+        "cloudfront:PublishFunction",
+        "cloudfront:UpdateFunction",
+        "cloudfront:DeleteFunction",
+        "cloudfront:CreateCachePolicy",
+        "cloudfront:GetCachePolicy",
+        "cloudfront:UpdateCachePolicy",
+        "cloudfront:DeleteCachePolicy",
+        "cloudfront:ListCachePolicies",
+        "cloudfront:CreateOriginRequestPolicy",
+        "cloudfront:GetOriginRequestPolicy",
+        "cloudfront:UpdateOriginRequestPolicy",
+        "cloudfront:DeleteOriginRequestPolicy",
+        "cloudfront:ListOriginRequestPolicies",
+        "cloudfront:CreateResponseHeadersPolicy",
+        "cloudfront:GetResponseHeadersPolicy",
+        "cloudfront:UpdateResponseHeadersPolicy",
+        "cloudfront:DeleteResponseHeadersPolicy"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Certificates",
+      "Effect": "Allow",
+      "Action": [
+        "acm:RequestCertificate",
+        "acm:DescribeCertificate",
+        "acm:DeleteCertificate",
+        "acm:AddTagsToCertificate",
+        "acm:RemoveTagsFromCertificate",
+        "acm:ListTagsForCertificate"
+      ],
+      "Resource": "*",
+      "Condition": { "StringEquals": { "aws:RequestedRegion": "us-east-1" } }
+    },
+    {
+      "Sid": "TestZoneRecords",
+      "Effect": "Allow",
+      "Action": [
+        "route53:ChangeResourceRecordSets",
+        "route53:ListResourceRecordSets",
+        "route53:GetHostedZone"
+      ],
+      "Resource": "arn:aws:route53:::hostedzone/HOSTED_ZONE_ID"
+    },
+    {
+      "Sid": "Route53Lookups",
+      "Effect": "Allow",
+      "Action": [
+        "route53:ListHostedZones",
+        "route53:ListHostedZonesByName",
+        "route53:GetChange",
+        "route53:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "LeftoverCheck",
+      "Effect": "Allow",
+      "Action": "tag:GetResources",
+      "Resource": "*"
+    }
+  ]
+}

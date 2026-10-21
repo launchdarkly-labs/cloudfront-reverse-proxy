@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- GitHub Actions workflows: a manual integration test that deploys the Terraform module to AWS and checks every route, and a release workflow that publishes a GitHub release from a `v*` tag with its CHANGELOG section, generated notes and the templates attached
 - Apache 2.0 License
 - CONTRIBUTING.md with development guidelines and testing procedures
 - CHANGELOG.md to track project changes
@@ -28,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README: missing closing quote on `streamUrl` in the React SDK example
 - README: GitHub Actions template paths corrected to `infrastructure/templates/`
 - README: streaming timeout limitation rewritten with measured heartbeat intervals
+
+## [1.0.1] - 2025-10-30
+
+### Fixed
+- Certificates for custom domains are provisioned and removed correctly in Route 53 hosted zones, in both the CloudFormation template and the cleanup template
 
 ## [1.0.0] - 2024-10-08
 
@@ -89,5 +95,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [Keep a Changelog](https://keepachangelog.com/)
 - [Semantic Versioning](https://semver.org/)
 
-[Unreleased]: https://github.com/your-org/cloudfront-reverse-proxy/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/your-org/cloudfront-reverse-proxy/releases/tag/v1.0.0
+[Unreleased]: https://github.com/launchdarkly-labs/cloudfront-reverse-proxy/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/launchdarkly-labs/cloudfront-reverse-proxy/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/launchdarkly-labs/cloudfront-reverse-proxy/releases/tag/v1.0.0

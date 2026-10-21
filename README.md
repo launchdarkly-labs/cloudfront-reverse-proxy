@@ -241,7 +241,7 @@ terraform test -test-directory=tests/integration \
   -var run_id=<unique ID>
 ```
 
-Every resource that supports tags gets a `run-id` tag, so you can confirm nothing is left behind with `aws resourcegroupstaggingapi get-resources --tag-filters Key=run-id,Values=<unique ID>`. Route 53 records and CloudFront policies can't be tagged, so check those by name.
+To run it from GitHub Actions instead, see [CONTRIBUTING.md](CONTRIBUTING.md#terraform-integration-test-in-github-actions). Every resource that supports tags gets a `run-id` tag, so you can confirm nothing is left behind with `aws resourcegroupstaggingapi get-resources --tag-filters Key=run-id,Values=<unique ID>`. Route 53 records and CloudFront policies can't be tagged, so check those by name.
 
 ## SDK Configuration
 

@@ -132,6 +132,49 @@ const LDProvider = await asyncWithLDProvider({
 aws cloudformation delete-stack --stack-name test-ld-cloudfront-proxy
 ```
 
+#### Terraform Integration Test in GitHub Actions
+
+`.github/workflows/terraform.yml` runs the offline Terraform checks on every pull request. `.github/workflows/terraform-integration.yml` deploys the module to AWS, checks every route, destroys everything, and fails if anything tagged with its run ID or any DNS record for the test domain is left. Start it from the Actions tab (**Terraform integration test** > **Run workflow**); the release workflow also runs it.
+
+It runs in a GitHub environment named `integration`, which needs:
+
+| Type | Name | Value |
+|---|---|---|
+| Secret | `AWS_INTEGRATION_ROLE_ARN` | IAM role the environment can assume through GitHub OIDC |
+| Variable | `TEST_DOMAIN_NAME` | Domain to deploy to, such as `proxy-ci.my-company-domain.com`, in a public Route 53 hosted zone |
+| Variable | `LD_CLIENT_SIDE_ID` | LaunchDarkly client-side ID to poll flags and send events for |
+
+Create the role from the policies in `.github/iam`, replacing `ACCOUNT_ID` and `HOSTED_ZONE_ID`. The trust policy only lets jobs in the `integration` environment assume it, unlike the template-upload role, so a pull request can't use it:
+
+```bash
+aws iam create-role --role-name GitHubActions-CloudFrontProxyIntegration \
+  --assume-role-policy-document file://.github/iam/integration-trust-policy.json
+aws iam put-role-policy --role-name GitHubActions-CloudFrontProxyIntegration \
+  --policy-name terraform-integration \
+  --policy-document file://.github/iam/integration-permissions-policy.json
+```
+
+Add required reviewers to the environment if a person should approve each run.
+
+## Releasing
+
+Releases are published by `.github/workflows/release.yml` when a version tag is pushed.
+
+1. In a pull request, move the `[Unreleased]` entries in `CHANGELOG.md` under a new `## [X.Y.Z] - YYYY-MM-DD` heading, and update the comparison links at the bottom. Check the section with `.github/scripts/changelog-section.sh X.Y.Z`.
+2. After it merges, tag the merge commit on `main` and push the tag:
+
+   ```bash
+   git tag vX.Y.Z <commit on main>
+   git push origin vX.Y.Z
+   ```
+
+The workflow stops unless the tag looks like `vX.Y.Z`, points at a commit on `main`, and has a CHANGELOG section. It then runs the offline Terraform checks and the integration test, and publishes the release:
+
+- **Notes:** the version's CHANGELOG section, how to deploy that version with CloudFormation or Terraform, and GitHub's generated list of merged pull requests.
+- **Assets:** `cloudfront.yaml`, `remove-cloudfront.yaml`, the Terraform module as a `.tar.gz`, and `SHA256SUMS`.
+
+Publishing a release doesn't change the one-click deploy templates: `deploy-template-to-s3-bucket.yml` still uploads them to S3 on every merge to `main`.
+
 ## Style Guidelines
 
 ### CloudFormation
