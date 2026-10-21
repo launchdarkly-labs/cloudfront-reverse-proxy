@@ -251,6 +251,25 @@ terraform test -test-directory=tests/integration \
 
 To run it from GitHub Actions instead, see [CONTRIBUTING.md](CONTRIBUTING.md#terraform-integration-test-in-github-actions). Every resource that supports tags gets a `run-id` tag, so you can confirm nothing is left behind with `aws resourcegroupstaggingapi get-resources --tag-filters Key=run-id,Values=<unique ID>`. Route 53 records and CloudFront policies can't be tagged, so check those by name.
 
+### Option 4: Deploy from GitHub Actions in your fork
+
+Fork this repository, and the **Deploy proxy** workflow (`.github/workflows/deploy.yml`) deploys or destroys the proxy in your AWS account with Terraform or CloudFormation. In your fork, anyone with write access can run it. In `launchdarkly-labs/cloudfront-reverse-proxy` itself, only repository admins can.
+
+1. Create an IAM role for GitHub Actions from `.github/iam/deploy-trust-policy.json` and `.github/iam/deploy-permissions-policy.json`. Replace `ACCOUNT_ID`, `OWNER/REPO` (your fork), `HOSTED_ZONE_ID`, `PROXY_NAME` and `TF_STATE_BUCKET`. The account needs an IAM OIDC identity provider for `token.actions.githubusercontent.com`.
+2. In your fork, go to **Settings** > **Environments**, and create an environment named `deploy`. Under **Deployment branches and tags**, allow only `main`, so a workflow changed on another branch can't use the environment.
+3. Add these to the environment:
+
+   | Name | Kind | Value |
+   |---|---|---|
+   | `AWS_DEPLOY_ROLE_ARN` | Secret | The role from step 1 |
+   | `PROXY_DOMAIN_NAME` | Secret, optional | Custom domain in a public Route 53 hosted zone, such as `flags.my-company-domain.com`. Leave it unset to use the CloudFront domain. It's a secret so GitHub masks it in the logs. |
+   | `PROXY_NAME` | Variable, optional | Stack name and resource name prefix. Defaults to `ld-cloudfront-proxy`. |
+   | `TF_STATE_BUCKET` | Variable, Terraform only | An S3 bucket in us-east-1 for the Terraform state. The state is stored at `<PROXY_NAME>/terraform.tfstate`. |
+
+4. Go to **Actions** > **Deploy proxy** > **Run workflow**, and choose `terraform` or `cloudformation` and `deploy`. The proxy URL is printed in the log of the deploy step.
+
+To remove the proxy, run the workflow with the same tool, choose `destroy`, and type the proxy name in `confirm_destroy`. Use one tool per domain, because Terraform and CloudFormation don't know about each other's resources.
+
 ## SDK Configuration
 
 Once deployed, configure your LaunchDarkly SDKs to use your CloudFront proxy by specifying the options with the reverse proxy URL.

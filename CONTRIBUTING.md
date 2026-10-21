@@ -156,7 +156,7 @@ aws iam put-role-policy --role-name GitHubActions-CloudFrontProxyIntegration \
   --policy-document file://.github/iam/integration-permissions-policy.json
 ```
 
-Add required reviewers to the environment if a person should approve each run.
+In this repository, only admins can run the integration test, the release and a manual template upload; each workflow checks with `.github/scripts/require-admin.sh` before it reads any secrets. Forks skip the check. A workflow edited on a branch could leave the check out, so under the environment's **Deployment branches and tags**, allow only `main` and tags matching `v*`. Add required reviewers to the environment if a person should approve each run.
 
 ## Releasing
 

@@ -6,8 +6,9 @@ name: Release
 #      at the bottom, set the version in both CloudFormation templates, and merge that to main.
 #   2. git tag vX.Y.Z <merged commit on main> && git push origin vX.Y.Z
 #
-# The release runs the offline Terraform checks and the AWS integration test first. Its notes are the
-# version's CHANGELOG section, how to deploy that version, and GitHub's list of merged pull requests.
+# In launchdarkly-labs/cloudfront-reverse-proxy the tag must be pushed by an admin. The release runs the
+# offline Terraform checks and the AWS integration test first. Its notes are the version's CHANGELOG
+# section, how to deploy that version, and GitHub's list of merged pull requests.
 
 on:
   push:
@@ -26,6 +27,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Admins only in launchdarkly-labs/cloudfront-reverse-proxy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.triggering_actor }}
+        run: .github/scripts/require-admin.sh
 
       - name: Version
         id: version

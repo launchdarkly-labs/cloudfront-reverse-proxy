@@ -22,6 +22,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Merges to main already need an approved pull request. A manual run needs an admin.
+      - name: Admins only in launchdarkly-labs/cloudfront-reverse-proxy
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.triggering_actor }}
+        run: .github/scripts/require-admin.sh
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:

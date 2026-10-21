@@ -1,7 +1,8 @@
 name: Terraform integration test
 
 # Deploys the Terraform module to AWS with a custom domain, sends a request through every route, and
-# destroys everything (tests/integration). Runs by hand, and before every release.
+# destroys everything (tests/integration). Runs by hand, and before every release. In
+# launchdarkly-labs/cloudfront-reverse-proxy only admins can run it; in a fork, anyone with write access can.
 #
 # Setup: three secrets in the "integration" GitHub environment. All three are secrets so GitHub masks them
 # wherever they appear in the logs, including inside URLs and DNS names.
@@ -23,7 +24,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  authorize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Admins only in launchdarkly-labs/cloudfront-reverse-proxy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.triggering_actor }}
+        run: .github/scripts/require-admin.sh
+
   integration:
+    needs: authorize
     runs-on: ubuntu-latest
     environment: integration
     timeout-minutes: 45
