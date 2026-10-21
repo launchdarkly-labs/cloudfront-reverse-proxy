@@ -14,7 +14,7 @@ Parameters:
   DomainName:
     Type: String
     Default: ''
-    Description: 'Custom domain to cleanup DNS and certificate (e.g., flags.launchdarklydemos.com). Leave empty to skip DNS/cert cleanup.'
+    Description: 'Custom domain to cleanup DNS and certificate (e.g., flags.example.com). Leave empty to skip DNS/cert cleanup.'
   CleanupDNS:
     Type: String
     Default: 'true'
