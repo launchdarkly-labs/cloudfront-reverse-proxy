@@ -291,6 +291,26 @@ PROXY_URL=https://flags.my-company-domain.com CLIENT_SIDE_ID=your-client-side-id
 
 The test exits `0` on pass and `1` on fail. Changing a flag during the run is optional; each update is logged.
 
+### Performance Testing
+
+`tests/perf` measures how much latency the proxy adds by sending the same traffic through the proxy and directly to LaunchDarkly, and comparing the two.
+
+- `npm run http`: requests each proxied route (flag polling, streaming, events, observability traces and sessions) at a fixed concurrency, and reports p50/p90/p99 latency, errors, and CloudFront's cache status. The request bodies are empty, so no data is created in LaunchDarkly.
+- `npm run sdk`: loads the LaunchDarkly React SDK in headless Chromium, alternating between the proxy and LaunchDarkly's default URLs, and reports how long each page takes to have flags. With `OBSERVABILITY=1` it also loads the observability and session replay plugins and times their requests. This creates real sessions, from service `proxy-perf-test`, in your project.
+
+```bash
+cd tests/perf
+npm install
+npx playwright install chromium
+export PROXY_URL=https://flags.my-company-domain.com CLIENT_SIDE_ID=your-client-side-id
+npm run http                     # REQUESTS=200 CONCURRENCY=10 STREAM_REQUESTS=30 by default
+RUNS=10 OBSERVABILITY=1 npm run sdk
+```
+
+Both fail if any request through the proxy fails. Set `MAX_OVERHEAD_MS` to also fail `npm run http` when the proxy's median is that much slower than direct on any route.
+
+Flag polling shows as `RefreshHit` rather than `Hit`: LaunchDarkly sends `Cache-Control: max-age=0` with an ETag, so CloudFront checks with LaunchDarkly on every request instead of serving a stored copy. This keeps flag values current.
+
 ## SDK Compatibility
 
 | SDK Type | Supported | Notes |
