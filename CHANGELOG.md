@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.1.0] - 2026-10-21
 
 ### Added
-- GitHub Actions workflows: an integration test, run by hand or before each release, that deploys the Terraform module to AWS, checks every route and fails if anything is left behind (the test domain and client-side ID come from environment secrets, so they stay out of logs), and a release workflow, started by hand with the version, that tags `main` and publishes a GitHub release with its CHANGELOG section, generated notes and the templates attached
+- GitHub Actions workflows: an integration test, run by hand, that deploys the Terraform module to AWS, checks every route and fails if anything is left behind (the test domain and client-side ID come from environment secrets, so they stay out of logs), and a release workflow, started by hand with the version, that tags `main` and publishes a GitHub release with its CHANGELOG section, generated notes and the templates attached
 - **Deploy or destroy proxy** GitHub Actions workflow, for running the proxy from a fork with Terraform or CloudFormation, with least-privilege IAM policies for its role in `.github/iam`
 - `PermissionsBoundaryArn` parameter in the CloudFormation template, to set a permissions boundary on the hosted zone lookup role
 - In this repository, only admins can run the workflows that use AWS; forks aren't restricted

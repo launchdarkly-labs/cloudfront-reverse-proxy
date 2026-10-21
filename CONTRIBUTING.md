@@ -134,7 +134,7 @@ aws cloudformation delete-stack --stack-name test-ld-cloudfront-proxy
 
 #### Terraform Integration Test in GitHub Actions
 
-`.github/workflows/terraform.yml` runs the offline Terraform checks on every pull request. `.github/workflows/terraform-integration.yml` deploys the module to AWS, checks every route, destroys everything, and fails if anything tagged with its run ID or any DNS record for the test domain is left. Start it from the Actions tab (**Terraform integration test** > **Run workflow**); the release workflow also runs it.
+`.github/workflows/terraform.yml` runs the offline Terraform checks on every pull request. `.github/workflows/terraform-integration.yml` deploys the module to AWS, checks every route, destroys everything, and fails if anything tagged with its run ID or any DNS record for the test domain is left. Start it from the Actions tab (**Terraform integration test** > **Run workflow**) before merging changes to the proxy. The release doesn't run it.
 
 It runs in a GitHub environment named `integration`, which needs three secrets:
 
@@ -171,9 +171,7 @@ Releases are published by `.github/workflows/release.yml`, which an admin starts
    - In `cloudfront.yaml` and `remove-cloudfront.yaml`, set `Metadata.Version` to `'X.Y.Z'`, `LastUpdated` to the date, and the `(vX.Y.Z)` at the end of `Description`.
 2. After it merges, go to **Actions** > **Release** > **Run workflow**, keep `main` as the branch, and enter the version (`X.Y.Z`). Or run `gh workflow run release.yml -f version=X.Y.Z`.
 
-The workflow stops unless it runs from `main`, the version looks like `X.Y.Z` and isn't tagged yet, the CHANGELOG has a section for it, and both templates have that version. It then runs the offline Terraform checks and the integration test, creates the `vX.Y.Z` tag on the commit it tested, and publishes the release.
-
-The integration test needs the `integration` environment above. To release without it, clear **Run the AWS integration test first**; the release notes then say the test didn't run.
+The workflow stops unless it runs from `main`, the version looks like `X.Y.Z` and isn't tagged yet, the CHANGELOG has a section for it, and both templates have that version. It then reruns the offline Terraform checks, creates the `vX.Y.Z` tag on the commit it checked, and publishes the release. It doesn't run the AWS integration test: what's on `main` has already been tested before it merged.
 
 The release has:
 

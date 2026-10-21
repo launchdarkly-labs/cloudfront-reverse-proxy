@@ -6,9 +6,10 @@ name: Release
 #      at the bottom, set the version in both CloudFormation templates, and merge that to main.
 #   2. Run this workflow with the version, X.Y.Z. It creates the vX.Y.Z tag on the main commit it ran on.
 #
-# In launchdarkly-labs/cloudfront-reverse-proxy only admins can run it. The release runs the offline
-# Terraform checks and, unless it's turned off, the AWS integration test first. Its notes are the version's
-# CHANGELOG section, how to deploy that version, and GitHub's list of merged pull requests.
+# In launchdarkly-labs/cloudfront-reverse-proxy only admins can run it. It releases what's already on main,
+# so it doesn't run the AWS integration test; run that before merging. It does rerun the offline Terraform
+# checks. Its notes are the version's CHANGELOG section, how to deploy that version, and GitHub's list of
+# merged pull requests.
 
 on:
   workflow_dispatch:
@@ -17,10 +18,6 @@ on:
         description: Version to release, such as 1.2.3 (needs a CHANGELOG section and matching templates)
         type: string
         required: true
-      integration_test:
-        description: Run the AWS integration test first (needs the integration environment)
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -76,22 +73,8 @@ jobs:
     needs: prepare
     uses: ./.github/workflows/terraform.yml
 
-  integration:
-    needs: prepare
-    if: inputs.integration_test
-    # A called workflow gets no more permissions than this job grants; it needs OIDC for AWS.
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/terraform-integration.yml
-    secrets: inherit
-
   release:
-    needs: [prepare, checks, integration]
-    # Runs when the checks passed and the integration test passed or was turned off.
-    if: >-
-      !cancelled() && needs.prepare.result == 'success' && needs.checks.result == 'success'
-      && (needs.integration.result == 'success' || (!inputs.integration_test && needs.integration.result == 'skipped'))
+    needs: [prepare, checks]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -103,13 +86,9 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
           REPO: ${{ github.repository }}
-          INTEGRATION_TEST: ${{ inputs.integration_test }}
         run: |
           {
             .github/scripts/changelog-section.sh "$VERSION"
-            if [ "$INTEGRATION_TEST" != true ]; then
-              printf '\n_This release was published without running the AWS integration test._\n'
-            fi
             cat <<NOTES
 
           ### Deploy this version
