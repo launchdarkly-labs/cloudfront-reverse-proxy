@@ -28,16 +28,22 @@ Parameters:
     Type: String
     Default: ''
     Description: Optional S3 bucket for logs (name only, no s3://)
+  PermissionsBoundaryArn:
+    Type: String
+    Default: ''
+    Description: Optional ARN of a managed policy to set as the permissions boundary of the hosted zone lookup role. Leave empty for none.
 
 Conditions:
   UseCustomDomain: !Equals [!Ref UseCustomDomain, 'true']
   UseLogging: !Equals [!Ref EnableLogging, 'true']
+  HasPermissionsBoundary: !Not [!Equals [!Ref PermissionsBoundaryArn, '']]
 
 Resources:
   HostedZoneLookupRole:
     Type: AWS::IAM::Role
     Condition: UseCustomDomain
     Properties:
+      PermissionsBoundary: !If [HasPermissionsBoundary, !Ref PermissionsBoundaryArn, !Ref 'AWS::NoValue']
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:

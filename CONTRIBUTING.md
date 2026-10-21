@@ -146,7 +146,7 @@ It runs in a GitHub environment named `integration`, which needs three secrets:
 
 All three are secrets so GitHub masks them wherever they appear in the workflow logs. That keeps the test domain out of the logs, but not out of public view: ACM certificates are published in Certificate Transparency logs, and the DNS records resolve while a run is deploying.
 
-Create the role from the policies in `.github/iam`, replacing `ACCOUNT_ID` and `HOSTED_ZONE_ID`. The trust policy only lets jobs in the `integration` environment assume it, unlike the template-upload role, so a pull request can't use it:
+Create the role from the policies in `.github/iam`, replacing `ACCOUNT_ID`, `HOSTED_ZONE_ID` and `TEST_DOMAIN_NAME`. The trust policy only accepts jobs in this repository's `integration` environment that run from `main` or a `v*` tag, so a pull request or another branch can't use it. The permissions policy only allows DNS changes to the test domain and its certificate validation record, and certificates for the test domain:
 
 ```bash
 aws iam create-role --role-name GitHubActions-CloudFrontProxyIntegration \
@@ -156,7 +156,12 @@ aws iam put-role-policy --role-name GitHubActions-CloudFrontProxyIntegration \
   --policy-document file://.github/iam/integration-permissions-policy.json
 ```
 
-In this repository, only admins can run the integration test, the release and a manual template upload; each workflow checks with `.github/scripts/require-admin.sh` before it reads any secrets. Forks skip the check. A workflow edited on a branch could leave the check out, so under the environment's **Deployment branches and tags**, allow only `main` and tags matching `v*`. Add required reviewers to the environment if a person should approve each run.
+In this repository, only admins can run the integration test, the release and a manual template upload; each workflow checks with `.github/scripts/require-admin.sh` before it reads any secrets. Forks skip the check. A workflow edited on a branch or tagged commit could leave the check out, so these settings are what actually enforce it:
+
+- The `integration` environment's **Deployment branches and tags** allow only `main` and tags matching `v*`.
+- A tag ruleset on `v*` lets only admins create, update or delete those tags. Otherwise anyone with write access could tag a commit with an edited workflow and run it with the environment's secrets.
+- `main` needs an approved pull request, so the workflows on `main` are reviewed.
+- Optionally, required reviewers on the environment approve each run.
 
 ## Releasing
 

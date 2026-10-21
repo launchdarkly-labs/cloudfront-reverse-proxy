@@ -255,18 +255,63 @@ To run it from GitHub Actions instead, see [CONTRIBUTING.md](CONTRIBUTING.md#ter
 
 Fork this repository, and the **Deploy proxy** workflow (`.github/workflows/deploy.yml`) deploys or destroys the proxy in your AWS account with Terraform or CloudFormation. In your fork, anyone with write access can run it. In `launchdarkly-labs/cloudfront-reverse-proxy` itself, only repository admins can.
 
-1. Create an IAM role for GitHub Actions from `.github/iam/deploy-trust-policy.json` and `.github/iam/deploy-permissions-policy.json`. Replace `ACCOUNT_ID`, `OWNER/REPO` (your fork), `HOSTED_ZONE_ID`, `PROXY_NAME` and `TF_STATE_BUCKET`. The account needs an IAM OIDC identity provider for `token.actions.githubusercontent.com`.
-2. In your fork, go to **Settings** > **Environments**, and create an environment named `deploy`. Under **Deployment branches and tags**, allow only `main`, so a workflow changed on another branch can't use the environment.
-3. Add these to the environment:
+The workflow signs in to AWS with GitHub's OpenID Connect (OIDC) tokens, so no AWS keys are stored in GitHub. Each run gets credentials that expire after an hour, and only if the role's trust policy accepts the run. The policies in `.github/iam` limit the role to the proxy's own resources:
+
+| File | Attach it when | What it allows |
+|---|---|---|
+| `deploy-trust-policy.json` | Always, as the trust policy | Runs from the `deploy` environment, on `main`, in your fork (checked by repository and owner ID, which can't be reused after a rename) |
+| `deploy-permissions-policy.json` | Always | The CloudFront distribution, cache policies and function; certificates for the proxy domain only; DNS changes only to the proxy's record and its certificate validation record, in one hosted zone |
+| `deploy-terraform-state-policy.json` | You deploy with Terraform | The proxy's state and lock files in the state bucket |
+| `deploy-cloudformation-policy.json` | You deploy with CloudFormation | The proxy's stack, and its hosted zone lookup function and role. The role can only be created with the boundary below attached, and the deploy role can't remove or change the boundary. |
+| `hosted-zone-lookup-boundary-policy.json` | You deploy with CloudFormation, as a managed policy named `LDProxyHostedZoneLookupBoundary` | The most the lookup role can do: read hosted zones and write its own logs |
+
+In every file, replace `ACCOUNT_ID`, `HOSTED_ZONE_ID`, `PROXY_NAME`, `PROXY_DOMAIN`, `TF_STATE_BUCKET`, `OWNER/REPO`, `REPOSITORY_ID` and `REPOSITORY_OWNER_ID`. Get the two IDs with `gh api repos/OWNER/REPO --jq '.id, .owner.id'`.
+
+1. If the account doesn't have an IAM OIDC identity provider for `token.actions.githubusercontent.com` yet, [create one](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_create_oidc.html) with the audience `sts.amazonaws.com`.
+2. To deploy with Terraform, create a state bucket that blocks public access, keeps old versions of the state, and refuses unencrypted connections:
+
+   ```bash
+   aws s3api create-bucket --bucket "$TF_STATE_BUCKET" --region us-east-1
+   aws s3api put-public-access-block --bucket "$TF_STATE_BUCKET" --public-access-block-configuration \
+     BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+   aws s3api put-bucket-versioning --bucket "$TF_STATE_BUCKET" --versioning-configuration Status=Enabled
+   aws s3api put-bucket-policy --bucket "$TF_STATE_BUCKET" --policy "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Deny\",\"Principal\":\"*\",\"Action\":\"s3:*\",\"Resource\":[\"arn:aws:s3:::${TF_STATE_BUCKET}\",\"arn:aws:s3:::${TF_STATE_BUCKET}/*\"],\"Condition\":{\"Bool\":{\"aws:SecureTransport\":\"false\"}}}]}"
+   ```
+
+3. To deploy with CloudFormation, create the boundary policy:
+
+   ```bash
+   aws iam create-policy --policy-name LDProxyHostedZoneLookupBoundary \
+     --policy-document file://.github/iam/hosted-zone-lookup-boundary-policy.json
+   ```
+
+4. Create the role, and attach the policies for the tools you use:
+
+   ```bash
+   aws iam create-role --role-name GitHubActions-LDProxyDeploy \
+     --assume-role-policy-document file://.github/iam/deploy-trust-policy.json
+   aws iam put-role-policy --role-name GitHubActions-LDProxyDeploy --policy-name deploy \
+     --policy-document file://.github/iam/deploy-permissions-policy.json
+   aws iam put-role-policy --role-name GitHubActions-LDProxyDeploy --policy-name terraform-state \
+     --policy-document file://.github/iam/deploy-terraform-state-policy.json
+   aws iam put-role-policy --role-name GitHubActions-LDProxyDeploy --policy-name cloudformation \
+     --policy-document file://.github/iam/deploy-cloudformation-policy.json
+   ```
+
+5. In your fork, go to **Settings** > **Environments** and create an environment named `deploy`:
+   - Under **Deployment branches and tags**, choose **Selected branches and tags** and add only `main`. The trust policy also requires `main`, so a workflow edited on another branch gets neither the secrets nor AWS credentials.
+   - Under **Required reviewers**, add the people who must approve each run before it gets credentials.
+   - Add these secrets and variables:
 
    | Name | Kind | Value |
    |---|---|---|
-   | `AWS_DEPLOY_ROLE_ARN` | Secret | The role from step 1 |
-   | `PROXY_DOMAIN_NAME` | Secret, optional | Custom domain in a public Route 53 hosted zone, such as `flags.my-company-domain.com`. Leave it unset to use the CloudFront domain. It's a secret so GitHub masks it in the logs. |
-   | `PROXY_NAME` | Variable, optional | Stack name and resource name prefix. Defaults to `ld-cloudfront-proxy`. |
-   | `TF_STATE_BUCKET` | Variable, Terraform only | An S3 bucket in us-east-1 for the Terraform state. The state is stored at `<PROXY_NAME>/terraform.tfstate`. |
+   | `AWS_DEPLOY_ROLE_ARN` | Secret | The role from step 4 |
+   | `PROXY_DOMAIN_NAME` | Secret, optional | Custom domain in the hosted zone, such as `flags.my-company-domain.com`, matching `PROXY_DOMAIN` in the policies. Leave it unset to use the CloudFront domain. It's a secret so GitHub masks it in the logs. |
+   | `PROXY_NAME` | Variable, optional | Stack name and resource name prefix, matching `PROXY_NAME` in the policies. Defaults to `ld-cloudfront-proxy`. |
+   | `TF_STATE_BUCKET` | Variable, Terraform only | The bucket from step 2. The state is stored at `<PROXY_NAME>/terraform.tfstate`. |
 
-4. Go to **Actions** > **Deploy proxy** > **Run workflow**, and choose `terraform` or `cloudformation` and `deploy`. The proxy URL is printed in the log of the deploy step.
+6. Protect `main` with a branch ruleset that requires an approved pull request, so a workflow change has to be reviewed before it can deploy.
+7. Go to **Actions** > **Deploy proxy** > **Run workflow**, and choose `terraform` or `cloudformation` and `deploy`. The proxy URL is printed in the log of the deploy step.
 
 To remove the proxy, run the workflow with the same tool, choose `destroy`, and type the proxy name in `confirm_destroy`. Use one tool per domain, because Terraform and CloudFormation don't know about each other's resources.
 

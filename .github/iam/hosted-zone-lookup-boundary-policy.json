@@ -1,0 +1,27 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "HostedZoneLookup",
+      "Effect": "Allow",
+      "Action": [
+        "route53:ListHostedZones",
+        "route53:GetHostedZone"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "OwnLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": [
+        "arn:aws:logs:us-east-1:ACCOUNT_ID:log-group:/aws/lambda/PROXY_NAME-hosted-zone-lookup",
+        "arn:aws:logs:us-east-1:ACCOUNT_ID:log-group:/aws/lambda/PROXY_NAME-hosted-zone-lookup:*"
+      ]
+    }
+  ]
+}

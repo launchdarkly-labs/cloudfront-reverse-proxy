@@ -5,7 +5,7 @@ name: Deploy proxy
 # run it; in a fork, anyone with write access can.
 #
 # Setup: a GitHub environment named "deploy" with
-#   secret   AWS_DEPLOY_ROLE_ARN  IAM role this environment can assume through GitHub OIDC (.github/iam)
+#   secret   AWS_DEPLOY_ROLE_ARN  IAM role this environment can assume through GitHub OIDC (see the README)
 #   secret   PROXY_DOMAIN_NAME    Optional custom domain, in a public Route 53 hosted zone. A secret so
 #                                 GitHub masks it in the logs. Leave it unset to use the CloudFront domain.
 #   variable PROXY_NAME           Optional. Stack name and resource name prefix; ld-cloudfront-proxy if unset
@@ -53,7 +53,8 @@ jobs:
     runs-on: ubuntu-latest
     # Secrets come from the environment, so only this job, after the admin check, can read them.
     environment: deploy
-    timeout-minutes: 60
+    # Ends before the 1-hour AWS credentials do.
+    timeout-minutes: 55
     permissions:
       contents: read
       id-token: write
@@ -88,8 +89,6 @@ jobs:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: us-east-1
           role-session-name: deploy-proxy-${{ github.run_id }}
-          # Long enough for a CloudFront deploy or delete, even when CloudFront is slow.
-          role-duration-seconds: 7200
 
       # Terraform: examples/basic with its state in S3. A *_override.tf file adds the backend without
       # changing the example.
@@ -128,7 +127,10 @@ jobs:
         if: inputs.tool == 'cloudformation' && inputs.action == 'deploy'
         run: |
           if [ -n "$PROXY_DOMAIN_NAME" ]; then
-            params=(UseCustomDomain=true "DomainName=${PROXY_DOMAIN_NAME}")
+            # The deploy role can only create the hosted zone lookup role with this boundary attached.
+            account=$(aws sts get-caller-identity --query Account --output text)
+            params=(UseCustomDomain=true "DomainName=${PROXY_DOMAIN_NAME}"
+              "PermissionsBoundaryArn=arn:aws:iam::${account}:policy/LDProxyHostedZoneLookupBoundary")
           else
             params=(UseCustomDomain=false)
           fi

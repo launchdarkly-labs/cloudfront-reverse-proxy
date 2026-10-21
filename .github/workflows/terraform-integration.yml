@@ -76,8 +76,6 @@ jobs:
           role-to-assume: ${{ secrets.AWS_INTEGRATION_ROLE_ARN }}
           aws-region: us-east-1
           role-session-name: terraform-integration-${{ github.run_id }}
-          # Long enough for the deploy and the destroy, even when CloudFront is slow.
-          role-duration-seconds: 7200
 
       - run: terraform init -input=false -test-directory=tests/integration
 
