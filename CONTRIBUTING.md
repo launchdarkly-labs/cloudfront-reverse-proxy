@@ -146,7 +146,7 @@ It runs in a GitHub environment named `integration`, which needs three secrets:
 
 All three are secrets so GitHub masks them wherever they appear in the workflow logs. That keeps the test domain out of the logs, but not out of public view: ACM certificates are published in Certificate Transparency logs, and the DNS records resolve while a run is deploying.
 
-Create the role from the policies in `.github/iam`, replacing `ACCOUNT_ID`, `HOSTED_ZONE_ID` and `TEST_DOMAIN_NAME`. The trust policy only accepts jobs in this repository's `integration` environment that run from `main` or a `v*` tag, so a pull request or another branch can't use it. The permissions policy only allows DNS changes to the test domain and its certificate validation record, and certificates for the test domain:
+Create the role from the policies in `.github/iam`, replacing `ACCOUNT_ID`, `HOSTED_ZONE_ID` and `TEST_DOMAIN_NAME`. The trust policy only accepts jobs in this repository's `integration` environment that run from `main`, so a pull request or another branch can't use it. The permissions policy only allows DNS changes to the test domain and its certificate validation record, and certificates for the test domain:
 
 ```bash
 aws iam create-role --role-name GitHubActions-CloudFrontProxyIntegration \
@@ -156,28 +156,26 @@ aws iam put-role-policy --role-name GitHubActions-CloudFrontProxyIntegration \
   --policy-document file://.github/iam/integration-permissions-policy.json
 ```
 
-In this repository, only admins can run the integration test, the release and a manual template upload; each workflow checks with `.github/scripts/require-admin.sh` before it reads any secrets. Forks skip the check. A workflow edited on a branch or tagged commit could leave the check out, so these settings are what actually enforce it:
+In this repository, only admins can run the integration test, the release and a manual template upload; each workflow checks with `.github/scripts/require-admin.sh` before it reads any secrets. Forks skip the check. A workflow edited on a branch could leave the check out, so these settings are what actually enforce it:
 
-- The `integration` environment's **Deployment branches and tags** allow only `main` and tags matching `v*`.
-- A tag ruleset on `v*` lets only admins create, update or delete those tags. Otherwise anyone with write access could tag a commit with an edited workflow and run it with the environment's secrets.
+- The `integration` environment's **Deployment branches and tags** allow only `main`. The trust policy also requires `main`.
 - `main` needs an approved pull request, so the workflows on `main` are reviewed.
 - Optionally, required reviewers on the environment approve each run.
 
 ## Releasing
 
-Releases are published by `.github/workflows/release.yml` when a version tag is pushed.
+Releases are published by `.github/workflows/release.yml`, which an admin starts by hand.
 
 1. In a pull request:
    - Move the `[Unreleased]` entries in `CHANGELOG.md` under a new `## [X.Y.Z] - YYYY-MM-DD` heading, and update the comparison links at the bottom. Check the section with `.github/scripts/changelog-section.sh X.Y.Z`.
    - In `cloudfront.yaml` and `remove-cloudfront.yaml`, set `Metadata.Version` to `'X.Y.Z'`, `LastUpdated` to the date, and the `(vX.Y.Z)` at the end of `Description`.
-2. After it merges, tag the merge commit on `main` and push the tag:
+2. After it merges, go to **Actions** > **Release** > **Run workflow**, keep `main` as the branch, and enter the version (`X.Y.Z`). Or run `gh workflow run release.yml -f version=X.Y.Z`.
 
-   ```bash
-   git tag vX.Y.Z <commit on main>
-   git push origin vX.Y.Z
-   ```
+The workflow stops unless it runs from `main`, the version looks like `X.Y.Z` and isn't tagged yet, the CHANGELOG has a section for it, and both templates have that version. It then runs the offline Terraform checks and the integration test, creates the `vX.Y.Z` tag on the commit it tested, and publishes the release.
 
-The workflow stops unless the tag looks like `vX.Y.Z`, points at a commit on `main`, has a CHANGELOG section, and matches the version in both templates. It then runs the offline Terraform checks and the integration test, and publishes the release:
+The integration test needs the `integration` environment above. To release without it, clear **Run the AWS integration test first**; the release notes then say the test didn't run.
+
+The release has:
 
 - **Notes:** the version's CHANGELOG section, how to deploy that version with CloudFormation or Terraform, and GitHub's generated list of merged pull requests.
 - **Assets:** `cloudfront.yaml`, `remove-cloudfront.yaml`, the Terraform module as a `.tar.gz`, and `SHA256SUMS`.
