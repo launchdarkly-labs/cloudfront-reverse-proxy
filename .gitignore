@@ -1,2 +1,9 @@
 .scratch/
 node_modules/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+crash.log

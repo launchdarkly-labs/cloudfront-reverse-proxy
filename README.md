@@ -170,6 +170,34 @@ aws cloudformation describe-stacks \
 
 This will return your CloudFront domain: `d4a2b1c1d5e6f9.cloudfront.net`
 
+### Option 3: Terraform
+
+`infrastructure/templates/terraform` creates the same proxy as the CloudFormation template, without the Lambda functions: the Route 53 hosted zone is looked up directly. It needs Terraform 1.5 or later and the AWS provider 5.x or 6.x, and always deploys to `us-east-1`, where CloudFront requires its certificate.
+
+```bash
+cd infrastructure/templates/terraform
+terraform init
+terraform apply \
+  -var name=ld-cloudfront-proxy \
+  -var domain_name=flags.my-company-domain.com
+terraform output proxy_url
+```
+
+| Variable | Default | Description |
+|---|---|---|
+| `name` | `ld-cloudfront-proxy` | Prefix for resource names; must be unique in the account (up to 50 characters) |
+| `domain_name` | `""` | Custom domain. Creates an ACM certificate, its DNS validation record and an alias record. Leave empty to use the CloudFront domain |
+| `hosted_zone_name` | parent of `domain_name` | Public Route 53 hosted zone to use, if it isn't the parent domain (for example, when `domain_name` is the zone apex) |
+| `price_class` | `PriceClass_100` | `PriceClass_100`, `PriceClass_200` or `PriceClass_All` |
+| `logging_bucket` | `""` | S3 bucket name for access logs; empty disables logging |
+| `tags` | `{}` | Tags applied to every resource |
+
+Outputs: `proxy_url`, `distribution_id`, `distribution_domain_name`, `certificate_arn`, `hosted_zone_id`. To remove the proxy, run `terraform destroy` with the same variables.
+
+To use it as a module from your own configuration, set `source` to this directory and pass the same variables; its provider block fixes the region to `us-east-1`.
+
+`terraform test` checks the routing (route order, the streaming timeout, the observability routes and CORS, certificate and DNS settings) against a mocked AWS provider, so it needs no AWS credentials.
+
 ## SDK Configuration
 
 Once deployed, configure your LaunchDarkly SDKs to use your CloudFront proxy by specifying the options with the reverse proxy URL.

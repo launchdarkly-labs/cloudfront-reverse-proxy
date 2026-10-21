@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tests/stream-drop`: headless browser test that fails if the proxy closes and reopens the LaunchDarkly streaming connection
 - Optional observability and session replay routes: `/v1/*` to `otel.observability.app.launchdarkly.com` and `/observability` to `pub.observability.app.launchdarkly.com`
 - `tests/perf`: latency tests comparing the proxy with direct connections, for each route and for SDK startup, optionally with the observability and session replay plugins
+- Terraform configuration (`infrastructure/templates/terraform`) equivalent to the CloudFormation template, with `terraform test` checks that run against a mocked AWS provider
 
 ### Changed
 - Updated README.md to include license section
