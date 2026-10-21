@@ -250,7 +250,7 @@ terraform test -test-directory=tests/integration \
   -var run_id=<unique ID>
 ```
 
-To run it from GitHub Actions instead, see [CONTRIBUTING.md](CONTRIBUTING.md#terraform-integration-test-in-github-actions). Every resource that supports tags gets a `run-id` tag, so you can confirm nothing is left behind with `aws resourcegroupstaggingapi get-resources --tag-filters Key=run-id,Values=<unique ID>`. Route 53 records and CloudFront policies can't be tagged, so check those by name.
+To deploy from GitHub Actions in your own fork instead, see [Option 4](#option-4-deploy-from-github-actions-in-your-fork). Every resource that supports tags gets a `run-id` tag, so you can confirm nothing is left behind with `aws resourcegroupstaggingapi get-resources --tag-filters Key=run-id,Values=<unique ID>`. Route 53 records and CloudFront policies can't be tagged, so check those by name.
 
 ### Option 4: Deploy from GitHub Actions in your fork
 
