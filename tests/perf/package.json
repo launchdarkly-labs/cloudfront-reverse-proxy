@@ -1,0 +1,19 @@
+{
+  "name": "ld-cloudfront-proxy-perf-test",
+  "private": true,
+  "description": "Compares LaunchDarkly SDK and observability latency through the CloudFront reverse proxy with direct connections",
+  "scripts": {
+    "http": "node http-latency.js",
+    "sdk": "node sdk-startup.js",
+    "test": "node http-latency.js && node sdk-startup.js"
+  },
+  "dependencies": {
+    "@launchdarkly/observability": "^1.2.1",
+    "@launchdarkly/react-sdk": "^4.1.28",
+    "@launchdarkly/session-replay": "^1.2.1",
+    "esbuild": "^0.28.2",
+    "playwright": "^1.64.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  }
+}
