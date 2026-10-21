@@ -142,7 +142,7 @@ It runs in a GitHub environment named `integration`, which needs three secrets:
 |---|---|
 | `AWS_INTEGRATION_ROLE_ARN` | IAM role the environment can assume through GitHub OIDC |
 | `TEST_DOMAIN_NAME` | Domain to deploy to, such as `proxy-ci.my-company-domain.com`, in a public Route 53 hosted zone |
-| `LD_CLIENT_SIDE_ID` | LaunchDarkly client-side ID to poll flags and send events for |
+| `LD_CLIENT_SIDE_ID` | LaunchDarkly client-side ID |
 
 All three are secrets so GitHub masks them wherever they appear in the workflow logs. That keeps the test domain out of the logs, but not out of public view: ACM certificates are published in Certificate Transparency logs, and the DNS records resolve while a run is deploying.
 

@@ -7,7 +7,7 @@ name: Terraform integration test
 # wherever they appear in the logs, including inside URLs and DNS names.
 #   AWS_INTEGRATION_ROLE_ARN  IAM role this environment can assume through GitHub OIDC
 #   TEST_DOMAIN_NAME          Domain to deploy to, in a public Route 53 hosted zone the role can edit
-#   LD_CLIENT_SIDE_ID         LaunchDarkly client-side ID to poll flags and send events for
+#   LD_CLIENT_SIDE_ID         LaunchDarkly client-side ID
 
 on:
   workflow_dispatch:
