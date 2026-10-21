@@ -192,6 +192,33 @@ const LDProvider = await asyncWithLDProvider({
 
 NOTE: You may need to restart your application.
 
+### Observability and Session Replay (Optional)
+
+If you use the LaunchDarkly observability or session replay browser plugins, point them at the proxy too. These settings are client-side only and are optional: if you leave them out, the plugins send data directly to LaunchDarkly and the proxy's observability routes go unused.
+
+```javascript
+import Observability from '@launchdarkly/observability';
+import SessionReplay from '@launchdarkly/session-replay';
+
+// Add to the SDK options above
+plugins: [
+  new Observability({
+    backendUrl: 'https://flags.my-company-domain.com/observability',
+    otel: { otlpEndpoint: 'https://flags.my-company-domain.com' },
+  }),
+  new SessionReplay({
+    backendUrl: 'https://flags.my-company-domain.com/observability',
+  }),
+]
+```
+
+| Plugin option | Proxy URL | LaunchDarkly URL |
+|---|---|---|
+| `otel.otlpEndpoint` | `https://<proxy>/v1/*` | `https://otel.observability.app.launchdarkly.com/v1/*` |
+| `backendUrl` (both plugins) | `https://<proxy>/observability` | `https://pub.observability.app.launchdarkly.com/` |
+
+Set `otlpEndpoint` to the proxy URL alone; the plugin adds `/v1/traces`, `/v1/metrics` and `/v1/logs`. Set `backendUrl` including `/observability`; the proxy removes that prefix before forwarding. Session replay has no separate URL: replay data is sent to `backendUrl`.
+
 ## What Gets Deployed
 
 ### Infrastructure Resources
@@ -207,6 +234,10 @@ NOTE: You may need to restart your application.
 - **`clientstream.launchdarkly.com`** - Real-time streaming, SSE endpoints  
 - **`events.launchdarkly.com`** - Event tracking and analytics
 - **`app.launchdarkly.com`** - SDK management and extended APIs
+- **`otel.observability.app.launchdarkly.com`** - Observability traces, metrics and logs (`/v1/*`)
+- **`pub.observability.app.launchdarkly.com`** - Observability sessions and session replay (`/observability`), through a CloudFront Function that removes the `/observability` prefix
+
+The observability routes don't cache, forward every request header except `Host`, and pass through LaunchDarkly's own CORS headers.
 
 ## Cleanup
 
