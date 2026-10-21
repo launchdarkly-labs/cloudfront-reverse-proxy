@@ -3,10 +3,11 @@ name: Terraform integration test
 # Deploys the Terraform module to AWS with a custom domain, sends a request through every route, and
 # destroys everything (tests/integration). Runs by hand, and before every release.
 #
-# Setup, in the "integration" GitHub environment:
-#   secret   AWS_INTEGRATION_ROLE_ARN  IAM role this environment can assume through GitHub OIDC
-#   variable TEST_DOMAIN_NAME          Domain to deploy to, in a public Route 53 hosted zone the role can edit
-#   variable LD_CLIENT_SIDE_ID         LaunchDarkly client-side ID to poll flags and send events for
+# Setup: three secrets in the "integration" GitHub environment. All three are secrets so GitHub masks them
+# wherever they appear in the logs, including inside URLs and DNS names.
+#   AWS_INTEGRATION_ROLE_ARN  IAM role this environment can assume through GitHub OIDC
+#   TEST_DOMAIN_NAME          Domain to deploy to, in a public Route 53 hosted zone the role can edit
+#   LD_CLIENT_SIDE_ID         LaunchDarkly client-side ID to poll flags and send events for
 
 on:
   workflow_dispatch:
@@ -34,9 +35,24 @@ jobs:
     env:
       RUN_ID: gh-${{ github.run_id }}-${{ github.run_attempt }}
       AWS_REGION: us-east-1
+      # Passed through the environment, not written into the scripts, so they're never part of a command line.
+      TEST_DOMAIN_NAME: ${{ secrets.TEST_DOMAIN_NAME }}
+      LD_CLIENT_SIDE_ID: ${{ secrets.LD_CLIENT_SIDE_ID }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Environment secrets are set
+        env:
+          HAS_ROLE: ${{ secrets.AWS_INTEGRATION_ROLE_ARN != '' }}
+        run: |
+          missing=""
+          [ "$HAS_ROLE" = true ] || missing="$missing AWS_INTEGRATION_ROLE_ARN"
+          [ -n "$TEST_DOMAIN_NAME" ] || missing="$missing TEST_DOMAIN_NAME"
+          [ -n "$LD_CLIENT_SIDE_ID" ] || missing="$missing LD_CLIENT_SIDE_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Add these secrets to the \"integration\" environment:$missing"; exit 1
+          fi
 
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
@@ -54,16 +70,18 @@ jobs:
       - run: terraform init -input=false -test-directory=tests/integration
 
       - name: terraform test
+        id: test
         run: >-
           terraform test -no-color -test-directory=tests/integration
-          -var "domain_name=${{ vars.TEST_DOMAIN_NAME }}"
-          -var "client_side_id=${{ vars.LD_CLIENT_SIDE_ID }}"
+          -var "domain_name=${TEST_DOMAIN_NAME}"
+          -var "client_side_id=${LD_CLIENT_SIDE_ID}"
           -var "run_id=${RUN_ID}"
 
       # terraform test destroys what it created even when a check fails. Confirm it, so a failed destroy
       # can't leave a distribution running unnoticed.
       - name: Nothing left behind
-        if: always()
+        # Whenever the test started, even if it failed or was cancelled.
+        if: always() && steps.test.outcome != 'skipped'
         run: |
           # The tagging API can take a minute to drop deleted resources.
           for _ in 1 2 3 4 5 6; do
@@ -72,7 +90,7 @@ jobs:
             [ -z "$left" ] && break
             sleep 20
           done
-          domain="${{ vars.TEST_DOMAIN_NAME }}"
+          domain="${TEST_DOMAIN_NAME}"
           parent="${domain#*.}"
           zone=$(aws route53 list-hosted-zones-by-name --dns-name "$parent" \
             --query "HostedZones[?Name=='${parent}.' && Config.PrivateZone==\`false\`].Id | [0]" --output text)

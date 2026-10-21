@@ -136,13 +136,15 @@ aws cloudformation delete-stack --stack-name test-ld-cloudfront-proxy
 
 `.github/workflows/terraform.yml` runs the offline Terraform checks on every pull request. `.github/workflows/terraform-integration.yml` deploys the module to AWS, checks every route, destroys everything, and fails if anything tagged with its run ID or any DNS record for the test domain is left. Start it from the Actions tab (**Terraform integration test** > **Run workflow**); the release workflow also runs it.
 
-It runs in a GitHub environment named `integration`, which needs:
+It runs in a GitHub environment named `integration`, which needs three secrets:
 
-| Type | Name | Value |
-|---|---|---|
-| Secret | `AWS_INTEGRATION_ROLE_ARN` | IAM role the environment can assume through GitHub OIDC |
-| Variable | `TEST_DOMAIN_NAME` | Domain to deploy to, such as `proxy-ci.my-company-domain.com`, in a public Route 53 hosted zone |
-| Variable | `LD_CLIENT_SIDE_ID` | LaunchDarkly client-side ID to poll flags and send events for |
+| Secret | Value |
+|---|---|
+| `AWS_INTEGRATION_ROLE_ARN` | IAM role the environment can assume through GitHub OIDC |
+| `TEST_DOMAIN_NAME` | Domain to deploy to, such as `proxy-ci.my-company-domain.com`, in a public Route 53 hosted zone |
+| `LD_CLIENT_SIDE_ID` | LaunchDarkly client-side ID to poll flags and send events for |
+
+All three are secrets so GitHub masks them wherever they appear in the workflow logs. That keeps the test domain out of the logs, but not out of public view: ACM certificates are published in Certificate Transparency logs, and the DNS records resolve while a run is deploying.
 
 Create the role from the policies in `.github/iam`, replacing `ACCOUNT_ID` and `HOSTED_ZONE_ID`. The trust policy only lets jobs in the `integration` environment assume it, unlike the template-upload role, so a pull request can't use it:
 
@@ -160,7 +162,9 @@ Add required reviewers to the environment if a person should approve each run.
 
 Releases are published by `.github/workflows/release.yml` when a version tag is pushed.
 
-1. In a pull request, move the `[Unreleased]` entries in `CHANGELOG.md` under a new `## [X.Y.Z] - YYYY-MM-DD` heading, and update the comparison links at the bottom. Check the section with `.github/scripts/changelog-section.sh X.Y.Z`.
+1. In a pull request:
+   - Move the `[Unreleased]` entries in `CHANGELOG.md` under a new `## [X.Y.Z] - YYYY-MM-DD` heading, and update the comparison links at the bottom. Check the section with `.github/scripts/changelog-section.sh X.Y.Z`.
+   - In `cloudfront.yaml` and `remove-cloudfront.yaml`, set `Metadata.Version` to `'X.Y.Z'`, `LastUpdated` to the date, and the `(vX.Y.Z)` at the end of `Description`.
 2. After it merges, tag the merge commit on `main` and push the tag:
 
    ```bash
@@ -168,7 +172,7 @@ Releases are published by `.github/workflows/release.yml` when a version tag is 
    git push origin vX.Y.Z
    ```
 
-The workflow stops unless the tag looks like `vX.Y.Z`, points at a commit on `main`, and has a CHANGELOG section. It then runs the offline Terraform checks and the integration test, and publishes the release:
+The workflow stops unless the tag looks like `vX.Y.Z`, points at a commit on `main`, has a CHANGELOG section, and matches the version in both templates. It then runs the offline Terraform checks and the integration test, and publishes the release:
 
 - **Notes:** the version's CHANGELOG section, how to deploy that version with CloudFormation or Terraform, and GitHub's generated list of merged pull requests.
 - **Assets:** `cloudfront.yaml`, `remove-cloudfront.yaml`, the Terraform module as a `.tar.gz`, and `SHA256SUMS`.

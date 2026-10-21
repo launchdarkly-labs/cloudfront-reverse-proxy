@@ -7,8 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-21
+
 ### Added
-- GitHub Actions workflows: a manual integration test that deploys the Terraform module to AWS and checks every route, and a release workflow that publishes a GitHub release from a `v*` tag with its CHANGELOG section, generated notes and the templates attached
+- GitHub Actions workflows: an integration test, run by hand or before each release, that deploys the Terraform module to AWS, checks every route and fails if anything is left behind (the test domain and client-side ID come from environment secrets, so they stay out of logs), and a release workflow that publishes a GitHub release from a `v*` tag with its CHANGELOG section, generated notes and the templates attached
 - Apache 2.0 License
 - CONTRIBUTING.md with development guidelines and testing procedures
 - CHANGELOG.md to track project changes
@@ -20,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Updated README.md to include license section
+- CloudFormation template versions set to 1.1.0; the release workflow checks they match the tag
 
 ### Fixed
 - Lambda runtimes moved from deprecated `python3.9` to `python3.13` in both templates
@@ -95,6 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [Keep a Changelog](https://keepachangelog.com/)
 - [Semantic Versioning](https://semver.org/)
 
-[Unreleased]: https://github.com/launchdarkly-labs/cloudfront-reverse-proxy/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/launchdarkly-labs/cloudfront-reverse-proxy/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/launchdarkly-labs/cloudfront-reverse-proxy/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/launchdarkly-labs/cloudfront-reverse-proxy/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/launchdarkly-labs/cloudfront-reverse-proxy/releases/tag/v1.0.0

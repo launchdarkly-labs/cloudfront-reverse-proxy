@@ -3,7 +3,7 @@ name: Release
 # Publishes a GitHub release when a version tag is pushed:
 #
 #   1. Move the [Unreleased] entries in CHANGELOG.md under "## [X.Y.Z] - YYYY-MM-DD", update the links
-#      at the bottom, and merge that to main.
+#      at the bottom, set the version in both CloudFormation templates, and merge that to main.
 #   2. git tag vX.Y.Z <merged commit on main> && git push origin vX.Y.Z
 #
 # The release runs the offline Terraform checks and the AWS integration test first. Its notes are the
@@ -41,6 +41,16 @@ jobs:
 
       - name: CHANGELOG has this version
         run: .github/scripts/changelog-section.sh "${{ steps.version.outputs.version }}"
+
+      - name: Templates have this version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          for f in infrastructure/templates/cloudfront.yaml infrastructure/templates/remove-cloudfront.yaml; do
+            if ! grep -q "^  Version: '${VERSION}'$" "$f" || ! grep -q "(v${VERSION})" "$f"; then
+              echo "::error file=$f::Set Metadata.Version to '${VERSION}' and the Description's version to (v${VERSION})."; exit 1
+            fi
+          done
 
   checks:
     needs: prepare
