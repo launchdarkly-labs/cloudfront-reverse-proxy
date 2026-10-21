@@ -100,11 +100,11 @@ Before submitting changes, please verify:
 
 ```bash
 # Validate CloudFormation template
-aws cloudformation validate-template --template-body file://infrastructure/templates/cloudfront.yaml
+aws cloudformation validate-template --template-body file://infrastructure/templates/cloudformation/cloudfront.yaml
 
 # Deploy test stack
 aws cloudformation deploy \
-  --template-file infrastructure/templates/cloudfront.yaml \
+  --template-file infrastructure/templates/cloudformation/cloudfront.yaml \
   --stack-name test-ld-cloudfront-proxy \
   --parameter-overrides UseCustomDomain=false \
   --capabilities CAPABILITY_IAM
@@ -205,7 +205,7 @@ Publishing a release doesn't change the one-click deploy templates: `deploy-temp
 
 This project uses automated deployments via GitHub Actions and follows semantic versioning:
 
-1. **Changes to `infrastructure/templates/cloudfront.yaml`** main branch trigger automatic S3 updates
+1. **Changes to `infrastructure/templates/cloudformation/cloudfront.yaml`** main branch trigger automatic S3 updates
 2. **One-click deploy links** are automatically updated
 3. **Templates are validated** before deployment
 

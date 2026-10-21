@@ -38,7 +38,7 @@ You can deploy to any AWS region by changing `region=us-east-1` in the URL to yo
 
 **Template URL:** `https://ld-cloudfront-proxy-templates-09-25-25.s3.amazonaws.com/cloudfront.yaml`
 
-The templates are automatically updated via GitHub Actions when changes to `infrastructure/templates/cloudfront.yaml` or `infrastructure/templates/remove-cloudfront.yaml` are merged to main
+The templates are automatically updated via GitHub Actions when changes to `infrastructure/templates/cloudformation/cloudfront.yaml` or `infrastructure/templates/cloudformation/remove-cloudfront.yaml` are merged to main
 
 ## Prerequisites for Custom Domain
 
@@ -113,7 +113,7 @@ Alternatively, you may update your domain registrar's NS records to point to the
 - The LaunchDarkly SDK handles reconnection automatically
 - Logs may show frequent connection retry events
 
-**Workaround:** Request a quota increase for the CloudFront origin response timeout, then raise `OriginReadTimeout` on `LDClientStreamOrigin` in `infrastructure/templates/cloudfront.yaml` to match. This requires approval from AWS.
+**Workaround:** Request a quota increase for the CloudFront origin response timeout, then raise `OriginReadTimeout` on `LDClientStreamOrigin` in `infrastructure/templates/cloudformation/cloudfront.yaml` to match. This requires approval from AWS.
 
 
 ### Option 1: AWS CloudFront Reverse proxy with Custom DNS
@@ -122,7 +122,7 @@ Alternatively, you may update your domain registrar's NS records to point to the
 
 ```bash
 aws cloudformation deploy \
-  --template-file infrastructure/templates/cloudfront.yaml \
+  --template-file infrastructure/templates/cloudformation/cloudfront.yaml \
   --stack-name ld-cloudfront-proxy \
   --parameter-overrides \
     UseCustomDomain=true \
@@ -151,7 +151,7 @@ This will return your CloudFront domain (e.g., `flags.my-company-domain.com`)
 
 ```bash
 aws cloudformation deploy \
-  --template-file infrastructure/templates/cloudfront.yaml \
+  --template-file infrastructure/templates/cloudformation/cloudfront.yaml \
   --stack-name ld-cloudfront-proxy \
   --parameter-overrides \
     UseCustomDomain=false \
@@ -396,7 +396,7 @@ The observability routes don't cache, forward every request header except `Host`
 ### Automated Cleanup (Recommended)
 ```bash
 aws cloudformation deploy \
-  --template-file infrastructure/templates/remove-cloudfront.yaml \
+  --template-file infrastructure/templates/cloudformation/remove-cloudfront.yaml \
   --stack-name cleanup-ld-cloudfront \
   --capabilities CAPABILITY_NAMED_IAM \
   --parameter-overrides \

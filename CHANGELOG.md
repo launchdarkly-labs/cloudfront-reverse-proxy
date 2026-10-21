@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GitHub Actions workflow that runs the Terraform offline checks on pull requests: fmt, validate and tests on Terraform 1.7.0 and the latest release, tflint with the AWS ruleset, Trivy, and a check that the README's terraform-docs tables are current
 
 ### Changed
+- CloudFormation templates moved to `infrastructure/templates/cloudformation/`, next to `infrastructure/templates/terraform/`. The S3 template URLs for the one-click deploy are unchanged.
 - Updated README.md to include license section
 - CloudFormation template versions set to 1.1.0; the release workflow checks they match the tag
 

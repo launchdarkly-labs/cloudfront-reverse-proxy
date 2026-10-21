@@ -5,8 +5,8 @@ on:
     branches:
       - main
     paths:
-      - 'infrastructure/templates/cloudfront.yaml'
-      - 'infrastructure/templates/remove-cloudfront.yaml'
+      - 'infrastructure/templates/cloudformation/cloudfront.yaml'
+      - 'infrastructure/templates/cloudformation/remove-cloudfront.yaml'
 
   workflow_dispatch:
 
@@ -39,10 +39,10 @@ jobs:
       - name: Upload CloudFormation templates to S3
         run: |
           echo "Uploading CloudFront template to s3://${{ vars.S3_BUCKET }}/${{ vars.S3_FILE_KEY }}"
-          aws s3 cp infrastructure/templates/cloudfront.yaml s3://${{ vars.S3_BUCKET }}/${{ vars.S3_FILE_KEY }}
+          aws s3 cp infrastructure/templates/cloudformation/cloudfront.yaml s3://${{ vars.S3_BUCKET }}/${{ vars.S3_FILE_KEY }}
           
           echo "Uploading cleanup template to s3://${{ vars.S3_BUCKET }}/remove-cloudfront.yaml"
-          aws s3 cp infrastructure/templates/remove-cloudfront.yaml s3://${{ vars.S3_BUCKET }}/remove-cloudfront.yaml
+          aws s3 cp infrastructure/templates/cloudformation/remove-cloudfront.yaml s3://${{ vars.S3_BUCKET }}/remove-cloudfront.yaml
           
           # Verify uploads
           echo "Verifying template accessibility..."

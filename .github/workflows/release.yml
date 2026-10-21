@@ -53,7 +53,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          for f in infrastructure/templates/cloudfront.yaml infrastructure/templates/remove-cloudfront.yaml; do
+          for f in infrastructure/templates/cloudformation/cloudfront.yaml infrastructure/templates/cloudformation/remove-cloudfront.yaml; do
             if ! grep -q "^  Version: '${VERSION}'$" "$f" || ! grep -q "(v${VERSION})" "$f"; then
               echo "::error file=$f::Set Metadata.Version to '${VERSION}' and the Description's version to (v${VERSION})."; exit 1
             fi
@@ -109,7 +109,7 @@ jobs:
       - name: Assets
         run: |
           mkdir dist
-          cp infrastructure/templates/cloudfront.yaml infrastructure/templates/remove-cloudfront.yaml dist/
+          cp infrastructure/templates/cloudformation/cloudfront.yaml infrastructure/templates/cloudformation/remove-cloudfront.yaml dist/
           git archive --format=tar.gz --prefix="ld-cloudfront-proxy-terraform/" \
             -o "dist/ld-cloudfront-proxy-terraform-${GITHUB_REF_NAME}.tar.gz" HEAD:infrastructure/templates/terraform
           (cd dist && sha256sum -- * > SHA256SUMS)

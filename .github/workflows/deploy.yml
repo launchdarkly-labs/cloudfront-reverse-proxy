@@ -135,7 +135,7 @@ jobs:
             params=(UseCustomDomain=false)
           fi
           aws cloudformation deploy \
-            --template-file infrastructure/templates/cloudfront.yaml \
+            --template-file infrastructure/templates/cloudformation/cloudfront.yaml \
             --stack-name "$PROXY_NAME" \
             --parameter-overrides "${params[@]}" \
             --capabilities CAPABILITY_IAM \
