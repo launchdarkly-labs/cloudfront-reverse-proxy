@@ -1,5 +1,5 @@
 variable "name" {
-  description = "Prefix for resource names, like the CloudFormation stack name. Must be unique in the account."
+  description = "Prefix for resource names, like the CloudFormation stack name. Must be unique in the account (up to 50 characters)."
   type        = string
   default     = "ld-cloudfront-proxy"
 
@@ -17,7 +17,7 @@ variable "domain_name" {
 }
 
 variable "hosted_zone_name" {
-  description = "Public Route 53 hosted zone for domain_name. Defaults to domain_name without its first label (flags.example.com -> example.com)."
+  description = "Public Route 53 hosted zone for domain_name. Defaults to domain_name without its first label (flags.example.com -> example.com). Required when domain_name is the zone apex."
   type        = string
   default     = ""
 }
@@ -40,7 +40,7 @@ variable "logging_bucket" {
 }
 
 variable "tags" {
-  description = "Tags applied to every resource."
+  description = "Tags for the distribution and certificate. To tag everything that supports tags, use the provider's default_tags instead (see examples/basic)."
   type        = map(string)
   default     = {}
 }

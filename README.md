@@ -172,31 +172,76 @@ This will return your CloudFront domain: `d4a2b1c1d5e6f9.cloudfront.net`
 
 ### Option 3: Terraform
 
-`infrastructure/templates/terraform` creates the same proxy as the CloudFormation template, without the Lambda functions: the Route 53 hosted zone is looked up directly. It needs Terraform 1.5 or later and the AWS provider 5.x or 6.x, and always deploys to `us-east-1`, where CloudFront requires its certificate.
+`infrastructure/templates/terraform` is a Terraform module that creates the same proxy as the CloudFormation template, without the Lambda functions: the Route 53 hosted zone is looked up directly. `examples/basic` is a root configuration that calls it.
+
+```bash
+cd infrastructure/templates/terraform/examples/basic
+terraform init
+terraform apply -var name=ld-cloudfront-proxy -var domain_name=flags.my-company-domain.com
+terraform output proxy_url
+```
+
+To remove the proxy, run `terraform destroy` with the same variables.
+
+To call the module from your own configuration, copy `examples/basic`: it sets `source`, the provider, and a commented-out S3 backend. The module has no provider block of its own, so it uses your credentials and works with `count`, `for_each` and `depends_on`. Its AWS provider must be in `us-east-1`, the only region CloudFront accepts certificates from; the module stops with an error before creating a certificate anywhere else. Keep the state in a shared, locked backend such as S3 with `use_lockfile = true` rather than on one machine.
+
+If `domain_name` is the zone apex (for example `example.com`), set `hosted_zone_name` to the same name; there is no parent zone to default to.
+
+Changing `domain_name` on a running proxy creates and validates the new certificate first, switches the distribution to it, creates the new DNS record, and only then removes the old record and certificate. The proxy is unreachable for about 3 minutes while CloudFront deploys the switch: the old name stops working when the deployment starts, and the new one works when it finishes. Resolvers that looked up the new name before it existed can keep the failed lookup cached for the zone's negative TTL (15 minutes in a default Route 53 zone). To change domains without downtime, deploy a second proxy with a different `name` and move your SDKs to it.
+
+The Terraform and provider versions below are the ones the tests pass on: Terraform 1.7.0 and 1.16.6, and the AWS provider 5.11.0, 5.100.0 and 6.69.1. The AWS provider before 5.11 can't create the `cloudfront-js-2.0` function.
+
+<!-- BEGIN_TF_DOCS -->
+##### Requirements
+
+| Name | Version |
+|------|---------|
+| terraform | >= 1.7 |
+| aws | >= 5.11, < 7.0 |
+
+##### Inputs
+
+| Name | Description | Type | Default | Required |
+|------|-------------|------|---------|:--------:|
+| domain\_name | Custom domain for the proxy (e.g. flags.example.com). Creates an ACM certificate and Route 53 record. Leave empty to use the CloudFront domain. | `string` | `""` | no |
+| hosted\_zone\_name | Public Route 53 hosted zone for domain\_name. Defaults to domain\_name without its first label (flags.example.com -> example.com). Required when domain\_name is the zone apex. | `string` | `""` | no |
+| logging\_bucket | Optional S3 bucket for CloudFront access logs (name only, no s3://). Leave empty to disable logging. | `string` | `""` | no |
+| name | Prefix for resource names, like the CloudFormation stack name. Must be unique in the account (up to 50 characters). | `string` | `"ld-cloudfront-proxy"` | no |
+| price\_class | CloudFront price class. | `string` | `"PriceClass_100"` | no |
+| tags | Tags for the distribution and certificate. To tag everything that supports tags, use the provider's default\_tags instead (see examples/basic). | `map(string)` | `{}` | no |
+
+##### Outputs
+
+| Name | Description |
+|------|-------------|
+| certificate\_arn | ACM certificate ARN (custom domain only) |
+| distribution\_domain\_name | CloudFront domain name |
+| distribution\_id | CloudFront distribution ID |
+| hosted\_zone\_id | Route 53 hosted zone ID used (custom domain only) |
+| proxy\_url | URL to use in your LaunchDarkly SDK configuration |
+<!-- END_TF_DOCS -->
+
+#### Testing the Terraform module
+
+The offline tests check the routing (route order, the streaming timeout, the observability routes and CORS, certificate and DNS settings) and the input checks against a mocked AWS provider, so they need no credentials:
 
 ```bash
 cd infrastructure/templates/terraform
 terraform init
-terraform apply \
-  -var name=ld-cloudfront-proxy \
-  -var domain_name=flags.my-company-domain.com
-terraform output proxy_url
+terraform test
 ```
 
-| Variable | Default | Description |
-|---|---|---|
-| `name` | `ld-cloudfront-proxy` | Prefix for resource names; must be unique in the account (up to 50 characters) |
-| `domain_name` | `""` | Custom domain. Creates an ACM certificate, its DNS validation record and an alias record. Leave empty to use the CloudFront domain |
-| `hosted_zone_name` | parent of `domain_name` | Public Route 53 hosted zone to use, if it isn't the parent domain (for example, when `domain_name` is the zone apex) |
-| `price_class` | `PriceClass_100` | `PriceClass_100`, `PriceClass_200` or `PriceClass_All` |
-| `logging_bucket` | `""` | S3 bucket name for access logs; empty disables logging |
-| `tags` | `{}` | Tags applied to every resource |
+The integration test deploys the proxy to a real AWS account with a custom domain, sends a request through the flag, events, `/v1/traces` and `/observability` routes, and then destroys everything, even when a check fails. It needs credentials for an account with a public Route 53 hosted zone for the domain, a Terraform version that allows `variable` blocks in test files (tested on 1.16.6), and takes about 10 minutes:
 
-Outputs: `proxy_url`, `distribution_id`, `distribution_domain_name`, `certificate_arn`, `hosted_zone_id`. To remove the proxy, run `terraform destroy` with the same variables.
+```bash
+terraform init -test-directory=tests/integration
+terraform test -test-directory=tests/integration \
+  -var domain_name=proxy-test.my-company-domain.com \
+  -var client_side_id=<client-side ID> \
+  -var run_id=<unique ID>
+```
 
-To use it as a module from your own configuration, set `source` to this directory and pass the same variables; its provider block fixes the region to `us-east-1`.
-
-`terraform test` checks the routing (route order, the streaming timeout, the observability routes and CORS, certificate and DNS settings) against a mocked AWS provider, so it needs no AWS credentials.
+Every resource that supports tags gets a `run-id` tag, so you can confirm nothing is left behind with `aws resourcegroupstaggingapi get-resources --tag-filters Key=run-id,Values=<unique ID>`. Route 53 records and CloudFront policies can't be tagged, so check those by name.
 
 ## SDK Configuration
 

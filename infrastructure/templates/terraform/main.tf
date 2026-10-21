@@ -61,20 +61,35 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
 
 # Custom domain: certificate, DNS validation and alias record.
 
+data "aws_region" "current" {}
+
 data "aws_route53_zone" "this" {
   count        = local.use_custom_domain ? 1 : 0
   name         = local.hosted_zone_name
   private_zone = false
+
+  lifecycle {
+    precondition {
+      condition     = length(split(".", var.domain_name)) > 2 || var.hosted_zone_name != ""
+      error_message = "domain_name \"${var.domain_name}\" has no parent zone to default to. Set hosted_zone_name to its hosted zone (for the zone apex, the same name)."
+    }
+  }
 }
 
 resource "aws_acm_certificate" "this" {
   count             = local.use_custom_domain ? 1 : 0
   domain_name       = var.domain_name
   validation_method = "DNS"
-  tags              = { Name = "${var.name}-certificate" }
+  tags              = merge(var.tags, { Name = "${var.name}-certificate" })
 
   lifecycle {
     create_before_destroy = true
+
+    precondition {
+      # endpoint is the one region attribute that is in provider 5.x and not deprecated in 6.x.
+      condition     = strcontains(data.aws_region.current.endpoint, ".us-east-1.")
+      error_message = "CloudFront only accepts certificates from us-east-1, but the AWS provider's endpoint is ${data.aws_region.current.endpoint}. Pass this module a provider in us-east-1."
+    }
   }
 }
 
@@ -107,11 +122,18 @@ resource "aws_route53_record" "proxy" {
     zone_id                = aws_cloudfront_distribution.this.hosted_zone_id
     evaluate_target_health = false
   }
+
+  # When domain_name changes, keep the old record until the distribution answers on the new name;
+  # otherwise the old name stops resolving several minutes before the new one works.
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 # CloudFront policies and function.
 
 resource "aws_cloudfront_response_headers_policy" "cors" {
+  # checkov:skip=CKV_AWS_259:Matches cloudfront.yaml. The SDKs only call the proxy over HTTPS, and viewers are redirected to HTTPS, so HSTS adds nothing here.
   name    = "${var.name}-LDClientsdkCORS"
   comment = "CORS for LD client SDK proxy"
 
@@ -217,7 +239,16 @@ resource "aws_cloudfront_function" "observability_path_rewrite" {
   EOT
 }
 
+# Scanner findings that don't apply to an SDK proxy, each with the reason:
+#trivy:ignore:AVD-AWS-0010 Logging is optional; set logging_bucket to turn it on.
+#trivy:ignore:AVD-AWS-0011 No WAF: this proxy only forwards to LaunchDarkly. Attach one outside the module if you need it.
 resource "aws_cloudfront_distribution" "this" {
+  # checkov:skip=CKV_AWS_68:No WAF: this proxy only forwards to LaunchDarkly. Attach one outside the module if you need it.
+  # checkov:skip=CKV2_AWS_47:No WAF, so no WAF rule set to check.
+  # checkov:skip=CKV_AWS_174:With domain_name the minimum is TLSv1.2_2021. Without it, CloudFront's default certificate can't be restricted.
+  # checkov:skip=CKV_AWS_310:LaunchDarkly has no second origin to fail over to.
+  # checkov:skip=CKV_AWS_305:An API proxy has no root page.
+  # checkov:skip=CKV_AWS_374:SDKs connect from every country; geo restriction would block them.
   enabled             = true
   comment             = "${var.name} - LaunchDarkly client SDK and events proxy"
   aliases             = local.use_custom_domain ? [var.domain_name] : []
@@ -225,6 +256,7 @@ resource "aws_cloudfront_distribution" "this" {
   price_class         = var.price_class
   http_version        = "http2"
   is_ipv6_enabled     = true
+  tags                = var.tags
 
   dynamic "origin" {
     for_each = local.origins

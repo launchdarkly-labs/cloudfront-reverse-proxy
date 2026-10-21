@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tests/stream-drop`: headless browser test that fails if the proxy closes and reopens the LaunchDarkly streaming connection
 - Optional observability and session replay routes: `/v1/*` to `otel.observability.app.launchdarkly.com` and `/observability` to `pub.observability.app.launchdarkly.com`
 - `tests/perf`: latency tests comparing the proxy with direct connections, for each route and for SDK startup, optionally with the observability and session replay plugins
-- Terraform configuration (`infrastructure/templates/terraform`) equivalent to the CloudFormation template, with `terraform test` checks that run against a mocked AWS provider
+- Terraform module (`infrastructure/templates/terraform`) equivalent to the CloudFormation template, with an `examples/basic` root configuration, offline `terraform test` checks against a mocked AWS provider, and an integration test that deploys to AWS and destroys what it created
+- GitHub Actions workflow that runs the Terraform offline checks on pull requests: fmt, validate and tests on Terraform 1.7.0 and the latest release, tflint with the AWS ruleset, Trivy, and a check that the README's terraform-docs tables are current
 
 ### Changed
 - Updated README.md to include license section

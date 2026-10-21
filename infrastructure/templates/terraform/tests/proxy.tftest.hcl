@@ -8,6 +8,9 @@ mock_provider "aws" {
   mock_data "aws_cloudfront_origin_request_policy" {
     defaults = { id = "b689b0a8-53d0-40ab-baf2-68738e2966ac" }
   }
+  mock_data "aws_region" {
+    defaults = { endpoint = "ec2.us-east-1.amazonaws.com" }
+  }
   mock_data "aws_route53_zone" {
     defaults = { zone_id = "Z0000000000000000000" }
   }
@@ -116,4 +119,43 @@ run "name_too_long" {
   }
 
   expect_failures = [var.name]
+}
+
+run "apex_domain_without_zone" {
+  command = plan
+
+  variables {
+    domain_name = "example.com"
+  }
+
+  expect_failures = [data.aws_route53_zone.this]
+}
+
+run "apex_domain_with_zone" {
+  command = plan
+
+  variables {
+    domain_name      = "example.com"
+    hosted_zone_name = "example.com"
+  }
+
+  assert {
+    condition     = local.hosted_zone_name == "example.com"
+    error_message = "An apex domain should use the hosted_zone_name it is given."
+  }
+}
+
+run "provider_outside_us_east_1" {
+  command = plan
+
+  override_data {
+    target = data.aws_region.current
+    values = { endpoint = "ec2.eu-west-1.amazonaws.com" }
+  }
+
+  variables {
+    domain_name = "flags.example.com"
+  }
+
+  expect_failures = [aws_acm_certificate.this]
 }
