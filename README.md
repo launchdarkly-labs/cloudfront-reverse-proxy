@@ -492,9 +492,9 @@ Each project configures its SDK independently using different SDK keys and base 
 | **Deploy CloudFormation Template to S3** (`deploy-template-to-s3-bucket.yml`) | When the templates change on `main`, or by hand | Uploads the templates behind the one-click deploy buttons |
 | **Deploy or destroy proxy** (`deploy.yml`) | By hand | Deploys or destroys the proxy in your AWS account. See [Option 4](#option-4-deploy-from-github-actions-in-your-fork). |
 | **Terraform integration test** (`terraform-integration.yml`) | By hand, and before each release | Deploys the Terraform module to AWS, checks every route, and destroys it. See [CONTRIBUTING.md](CONTRIBUTING.md#terraform-integration-test-in-github-actions). |
-| **Release** (`release.yml`) | When a `v*` tag is pushed | Publishes a GitHub release. See [CONTRIBUTING.md](CONTRIBUTING.md#releasing). |
+| **Release** (`release.yml`) | By hand, with the version to release | Tags `main` and publishes a GitHub release. See [CONTRIBUTING.md](CONTRIBUTING.md#releasing). |
 
-The workflows that use AWS sign in with GitHub OIDC, so no AWS keys are stored in GitHub. In `launchdarkly-labs/cloudfront-reverse-proxy`, only repository admins can run them by hand or push a release tag. Forks don't have this restriction.
+The workflows that use AWS sign in with GitHub OIDC, so no AWS keys are stored in GitHub. In `launchdarkly-labs/cloudfront-reverse-proxy`, only repository admins can run them by hand. Forks don't have this restriction.
 
 ## One-Click Cleanup
 

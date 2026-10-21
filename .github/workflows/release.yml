@@ -1,18 +1,26 @@
 name: Release
 
-# Publishes a GitHub release when a version tag is pushed:
+# Publishes a GitHub release, started by hand from the Actions tab (Release > Run workflow) on main:
 #
 #   1. Move the [Unreleased] entries in CHANGELOG.md under "## [X.Y.Z] - YYYY-MM-DD", update the links
 #      at the bottom, set the version in both CloudFormation templates, and merge that to main.
-#   2. git tag vX.Y.Z <merged commit on main> && git push origin vX.Y.Z
+#   2. Run this workflow with the version, X.Y.Z. It creates the vX.Y.Z tag on the main commit it ran on.
 #
-# In launchdarkly-labs/cloudfront-reverse-proxy the tag must be pushed by an admin. The release runs the
-# offline Terraform checks and the AWS integration test first. Its notes are the version's CHANGELOG
-# section, how to deploy that version, and GitHub's list of merged pull requests.
+# In launchdarkly-labs/cloudfront-reverse-proxy only admins can run it. The release runs the offline
+# Terraform checks and, unless it's turned off, the AWS integration test first. Its notes are the version's
+# CHANGELOG section, how to deploy that version, and GitHub's list of merged pull requests.
 
 on:
-  push:
-    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, such as 1.2.3 (needs a CHANGELOG section and matching templates)
+        type: string
+        required: true
+      integration_test:
+        description: Run the AWS integration test first (needs the integration environment)
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -36,15 +44,20 @@ jobs:
 
       - name: Version
         id: version
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          tag="${GITHUB_REF_NAME}"
-          if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Release tags must look like v1.2.3, not ${tag}."; exit 1
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::Run the release from main, not ${GITHUB_REF_NAME}."; exit 1
           fi
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            echo "::error::${tag} points at a commit that isn't on main. Tag a merged commit."; exit 1
+          VERSION="${VERSION#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::The version must look like 1.2.3, not ${VERSION}."; exit 1
           fi
-          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v${VERSION}" > /dev/null; then
+            echo "::error::v${VERSION} is already tagged. Release a new version."; exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: CHANGELOG has this version
         run: .github/scripts/changelog-section.sh "${{ steps.version.outputs.version }}"
@@ -65,6 +78,7 @@ jobs:
 
   integration:
     needs: prepare
+    if: inputs.integration_test
     # A called workflow gets no more permissions than this job grants; it needs OIDC for AWS.
     permissions:
       contents: read
@@ -74,6 +88,10 @@ jobs:
 
   release:
     needs: [prepare, checks, integration]
+    # Runs when the checks passed and the integration test passed or was turned off.
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' && needs.checks.result == 'success'
+      && (needs.integration.result == 'success' || (!inputs.integration_test && needs.integration.result == 'skipped'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -85,9 +103,13 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
           REPO: ${{ github.repository }}
+          INTEGRATION_TEST: ${{ inputs.integration_test }}
         run: |
           {
             .github/scripts/changelog-section.sh "$VERSION"
+            if [ "$INTEGRATION_TEST" != true ]; then
+              printf '\n_This release was published without running the AWS integration test._\n'
+            fi
             cat <<NOTES
 
           ### Deploy this version
@@ -107,20 +129,24 @@ jobs:
           cat notes.md
 
       - name: Assets
+        env:
+          TAG: v${{ needs.prepare.outputs.version }}
         run: |
           mkdir dist
           cp infrastructure/templates/cloudformation/cloudfront.yaml infrastructure/templates/cloudformation/remove-cloudfront.yaml dist/
           git archive --format=tar.gz --prefix="ld-cloudfront-proxy-terraform/" \
-            -o "dist/ld-cloudfront-proxy-terraform-${GITHUB_REF_NAME}.tar.gz" HEAD:infrastructure/templates/terraform
+            -o "dist/ld-cloudfront-proxy-terraform-${TAG}.tar.gz" HEAD:infrastructure/templates/terraform
           (cd dist && sha256sum -- * > SHA256SUMS)
           cat dist/SHA256SUMS
 
+      # Creates the tag on the commit this run checked and tested.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.prepare.outputs.version }}
         run: >-
-          gh release create "$GITHUB_REF_NAME" dist/*
-          --verify-tag
-          --title "$GITHUB_REF_NAME"
+          gh release create "$TAG" dist/*
+          --target "$GITHUB_SHA"
+          --title "$TAG"
           --notes-file notes.md
           --generate-notes
