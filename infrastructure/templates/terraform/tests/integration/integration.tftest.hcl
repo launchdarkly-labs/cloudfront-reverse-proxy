@@ -15,7 +15,7 @@ variable "run_id" {
 }
 
 variable "client_side_id" {
-  description = "LaunchDarkly client-side ID to poll flags and send events for."
+  description = "LaunchDarkly client-side ID"
   type        = string
 }
 
