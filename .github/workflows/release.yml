@@ -2,25 +2,21 @@ name: Release
 
 # Publishes a GitHub release, started by hand from the Actions tab (Release > Run workflow) on main:
 #
-#   1. Move the [Unreleased] entries in CHANGELOG.md under "## [X.Y.Z] - YYYY-MM-DD", update the links
-#      at the bottom, set the version in both CloudFormation templates, and merge that to main.
+#   1. Set the version in both CloudFormation templates in a pull request, and merge it to main.
 #   2. Run this workflow with the version, X.Y.Z. It creates the vX.Y.Z tag on the main commit it ran on.
 #
-# In launchdarkly-labs/cloudfront-reverse-proxy only admins can run it. The release runs the offline
-# Terraform checks and, unless it's turned off, the AWS integration test first. Its notes are the version's
-# CHANGELOG section, how to deploy that version, and GitHub's list of merged pull requests.
+# In launchdarkly-labs/cloudfront-reverse-proxy only admins can run it. It releases what's already on main,
+# so it doesn't run the AWS integration test; run that before merging. It does rerun the offline Terraform
+# checks. Its notes are how to deploy that version and GitHub's list of the pull requests merged since the
+# last release, so pull request titles are the changelog.
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version to release, such as 1.2.3 (needs a CHANGELOG section and matching templates)
+        description: Version to release, such as 1.2.3 (both templates must have this version)
         type: string
         required: true
-      integration_test:
-        description: Run the AWS integration test first (needs the integration environment)
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -59,9 +55,6 @@ jobs:
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: CHANGELOG has this version
-        run: .github/scripts/changelog-section.sh "${{ steps.version.outputs.version }}"
-
       - name: Templates have this version
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -76,22 +69,8 @@ jobs:
     needs: prepare
     uses: ./.github/workflows/terraform.yml
 
-  integration:
-    needs: prepare
-    if: inputs.integration_test
-    # A called workflow gets no more permissions than this job grants; it needs OIDC for AWS.
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/terraform-integration.yml
-    secrets: inherit
-
   release:
-    needs: [prepare, checks, integration]
-    # Runs when the checks passed and the integration test passed or was turned off.
-    if: >-
-      !cancelled() && needs.prepare.result == 'success' && needs.checks.result == 'success'
-      && (needs.integration.result == 'success' || (!inputs.integration_test && needs.integration.result == 'skipped'))
+    needs: [prepare, checks]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -103,15 +82,9 @@ jobs:
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
           REPO: ${{ github.repository }}
-          INTEGRATION_TEST: ${{ inputs.integration_test }}
         run: |
           {
-            .github/scripts/changelog-section.sh "$VERSION"
-            if [ "$INTEGRATION_TEST" != true ]; then
-              printf '\n_This release was published without running the AWS integration test._\n'
-            fi
             cat <<NOTES
-
           ### Deploy this version
 
           **CloudFormation:** download \`cloudfront.yaml\` below and create a stack from it, or use the one-click deploy buttons in the README.
@@ -139,14 +112,19 @@ jobs:
           (cd dist && sha256sum -- * > SHA256SUMS)
           cat dist/SHA256SUMS
 
-      # Creates the tag on the commit this run checked and tested.
+      # Creates the tag on the commit this run checked. The generated list starts at the latest release, not
+      # whichever tag GitHub finds in main's history.
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: v${{ needs.prepare.outputs.version }}
-        run: >-
-          gh release create "$TAG" dist/*
-          --target "$GITHUB_SHA"
-          --title "$TAG"
-          --notes-file notes.md
-          --generate-notes
+        run: |
+          start=()
+          if previous=$(gh release view --json tagName --jq .tagName 2>/dev/null); then
+            start=(--notes-start-tag "$previous")
+          fi
+          gh release create "$TAG" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes-file notes.md \
+            --generate-notes "${start[@]}"

@@ -134,7 +134,7 @@ aws cloudformation delete-stack --stack-name test-ld-cloudfront-proxy
 
 #### Terraform Integration Test in GitHub Actions
 
-`.github/workflows/terraform.yml` runs the offline Terraform checks on every pull request. `.github/workflows/terraform-integration.yml` deploys the module to AWS, checks every route, destroys everything, and fails if anything tagged with its run ID or any DNS record for the test domain is left. Start it from the Actions tab (**Terraform integration test** > **Run workflow**); the release workflow also runs it.
+`.github/workflows/terraform.yml` runs the offline Terraform checks on every pull request. `.github/workflows/terraform-integration.yml` deploys the module to AWS, checks every route, destroys everything, and fails if anything tagged with its run ID or any DNS record for the test domain is left. Start it from the Actions tab (**Terraform integration test** > **Run workflow**) before merging changes to the proxy. The release doesn't run it.
 
 It runs in a GitHub environment named `integration`, which needs three secrets:
 
@@ -166,18 +166,14 @@ In this repository, only admins can run the integration test, the release and a 
 
 Releases are published by `.github/workflows/release.yml`, which an admin starts by hand.
 
-1. In a pull request:
-   - Move the `[Unreleased]` entries in `CHANGELOG.md` under a new `## [X.Y.Z] - YYYY-MM-DD` heading, and update the comparison links at the bottom. Check the section with `.github/scripts/changelog-section.sh X.Y.Z`.
-   - In `cloudfront.yaml` and `remove-cloudfront.yaml`, set `Metadata.Version` to `'X.Y.Z'`, `LastUpdated` to the date, and the `(vX.Y.Z)` at the end of `Description`.
+1. In a pull request, set the version in `cloudfront.yaml` and `remove-cloudfront.yaml`: `Metadata.Version` to `'X.Y.Z'`, `LastUpdated` to the date, and the `(vX.Y.Z)` at the end of `Description`.
 2. After it merges, go to **Actions** > **Release** > **Run workflow**, keep `main` as the branch, and enter the version (`X.Y.Z`). Or run `gh workflow run release.yml -f version=X.Y.Z`.
 
-The workflow stops unless it runs from `main`, the version looks like `X.Y.Z` and isn't tagged yet, the CHANGELOG has a section for it, and both templates have that version. It then runs the offline Terraform checks and the integration test, creates the `vX.Y.Z` tag on the commit it tested, and publishes the release.
-
-The integration test needs the `integration` environment above. To release without it, clear **Run the AWS integration test first**; the release notes then say the test didn't run.
+The workflow stops unless it runs from `main`, the version looks like `X.Y.Z` and isn't tagged yet, and both templates have that version. It then reruns the offline Terraform checks, creates the `vX.Y.Z` tag on the commit it checked, and publishes the release. It doesn't run the AWS integration test: what's on `main` has already been tested before it merged.
 
 The release has:
 
-- **Notes:** the version's CHANGELOG section, how to deploy that version with CloudFormation or Terraform, and GitHub's generated list of merged pull requests.
+- **Notes:** how to deploy that version with CloudFormation or Terraform, and GitHub's generated list of the pull requests merged since the last release. There's no CHANGELOG file: pull request titles are the changelog, so write them for someone reading the release.
 - **Assets:** `cloudfront.yaml`, `remove-cloudfront.yaml`, the Terraform module as a `.tar.gz`, and `SHA256SUMS`.
 
 Publishing a release doesn't change the one-click deploy templates: `deploy-template-to-s3-bucket.yml` still uploads them to S3 on every merge to `main`.
@@ -199,53 +195,9 @@ Publishing a release doesn't change the one-click deploy templates: `deploy-temp
 - Use **consistent formatting** for commands and code
 - Keep **line lengths reasonable** (80-100 characters)
 
-## Release Process
+## Versioning
 
-This project uses automated deployments via GitHub Actions and follows semantic versioning:
-
-1. **Changes to `infrastructure/templates/cloudformation/cloudfront.yaml`** main branch trigger automatic S3 updates
-2. **One-click deploy links** are automatically updated
-3. **Templates are validated** before deployment
-
-### Version Management
-
-This project uses multiple version tracking methods:
-
-#### 1. Git Tags (Primary)
-```bash
-# Create a new release version
-git tag -a v1.1.0 -m "Add new caching policy for streaming endpoints"
-git push origin v1.1.0
-
-# List all versions
-git tag -l
-```
-
-#### 2. VERSION File
-Update the `VERSION` file in the repository root with the current version number.
-
-#### 3. CloudFormation Template Metadata
-Both CloudFormation templates include version metadata:
-```yaml
-Metadata:
-  Version: '1.1.0'
-  LastUpdated: '2024-10-08' 
-  Author: 'AWS CloudFront Proxy for LaunchDarkly'
-```
-
-#### 4. GitHub Releases
-Create GitHub releases from tags to provide user-facing release notes.
-
-### Version Update Workflow
-
-When creating a new release:
-
-1. **Update VERSION file** with new version number
-2. **Update CloudFormation template metadata** in both templates
-3. **Update CHANGELOG.md** moving items from "Unreleased" to new version
-4. **Commit changes** with message like "Bump version to v1.1.0"
-5. **Create and push Git tag** `git tag -a v1.1.0 -m "Release description"`
-6. **Create GitHub release** from the tag with release notes
+This project follows [semantic versioning](https://semver.org/). A version is recorded in two places: the `vX.Y.Z` tag and GitHub release that the release workflow creates (see [Releasing](#releasing)), and the `Metadata.Version` in both CloudFormation templates. Merges to `main` that change the templates upload them to S3 for the one-click deploy buttons, whether or not there's a release.
 
 ### Branch Strategy
 
